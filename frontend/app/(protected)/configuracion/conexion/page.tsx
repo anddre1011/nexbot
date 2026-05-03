@@ -31,9 +31,19 @@ export default function ConexionPage() {
 
       if (data) {
         setTenantId(data.id)
+
+        // Sanear phone_number_id: debe ser numérico, no un email ni texto con '@'
+        const rawPhoneId = data.phone_number_id ?? ''
+        const cleanPhoneId = rawPhoneId.includes('@') ? '' : rawPhoneId
+
+        // Si el valor corrupto está en BD, limpiarlo también en Supabase
+        if (rawPhoneId !== cleanPhoneId) {
+          await supabase.from('tenants').update({ phone_number_id: null }).eq('id', data.id)
+        }
+
         setForm({
           whatsapp_number:      data.whatsapp_number ?? '',
-          phone_number_id:      data.phone_number_id ?? '',
+          phone_number_id:      cleanPhoneId,
           meta_token:           data.meta_token ?? '',
           webhook_verify_token: data.webhook_verify_token ?? '',
         })
