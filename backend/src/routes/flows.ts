@@ -55,7 +55,7 @@ router.post('/', async (req, res) => {
 
 // ─── PATCH /api/flows/:id ─────────────────────────────────────────────────────
 router.patch('/:id', async (req, res) => {
-  const allowed = ['name', 'type', 'model', 'system_prompt', 'handoff_agent_name', 'welcome_items', 'inactivity_messages', 'active'] as const
+  const allowed = ['name', 'type', 'model', 'system_prompt', 'handoff_agent_name', 'welcome_items', 'inactivity_messages', 'active', 'conversion_enabled', 'conversion_message', 'conversion_product_id', 'tags'] as const
   const updates: Record<string, unknown> = {}
   for (const key of allowed) {
     if (req.body[key] !== undefined) updates[key] = req.body[key]
@@ -75,6 +75,38 @@ router.delete('/:id', async (req, res) => {
   const { error } = await supabase.from('flows').delete().eq('id', req.params.id)
   if (error) { res.status(500).json({ error: error.message }); return }
   res.json({ ok: true })
+})
+
+// ─── POST /api/flows/generate-prompt ─────────────────────────────────────────
+router.post('/generate-prompt', async (req, res) => {
+  const { product_name, product_price, payment_methods, business_name } = req.body
+  if (!product_name) { res.status(400).json({ error: 'product_name required' }); return }
+
+  const { openai } = await import('../services/openai')
+  const completion = await openai.chat.completions.create({
+    model: 'gpt-4o-mini',
+    temperature: 0.7,
+    max_tokens: 400,
+    messages: [{
+      role: 'user',
+      content: `Genera un prompt de sistema para un agente de ventas de WhatsApp con estos datos:
+Negocio: ${business_name ?? 'Mi Negocio'}
+Producto: ${product_name}
+Precio: ${product_price ?? 'a consultar'}
+Métodos de pago: ${payment_methods ?? 'transferencia bancaria'}
+
+El prompt debe:
+- Ser en español, tono amigable y profesional
+- Indicar el objetivo: responder dudas y cerrar la venta
+- Incluir las variables {{product_name}}, {{price}}, {{payment_methods}}
+- Tener reglas claras: respuestas cortas (max 3 oraciones), indicar precio cuando pregunten
+- Máximo 150 palabras
+
+Responde SOLO con el prompt, sin explicación.`,
+    }],
+  })
+
+  res.json({ prompt: completion.choices[0].message.content?.trim() ?? '' })
 })
 
 export default router
