@@ -1,0 +1,52 @@
+services:
+
+  # ── Frontend Next.js ──────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_SUPABASE_URL:      ${NEXT_PUBLIC_SUPABASE_URL}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+        NEXT_PUBLIC_API_URL:           ${NEXT_PUBLIC_API_URL}
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+    restart: unless-stopped
+    depends_on:
+      - backend
+
+  # ── Backend Express ───────────────────────────────────────────────────────
+  backend:
+    build:
+      context: .          # raíz nexbot/ — necesita acceso a backend/ y ai-agent/
+      dockerfile: backend/Dockerfile
+    ports:
+      - "3001:3001"
+    environment:
+      NODE_ENV:                   production
+      PORT:                       3001
+      SUPABASE_URL:               ${SUPABASE_URL}
+      SUPABASE_SERVICE_KEY:       ${SUPABASE_SERVICE_KEY}
+      OPENAI_API_KEY:             ${OPENAI_API_KEY}
+      META_TOKEN:                 ${META_TOKEN}
+      META_PHONE_NUMBER_ID:       ${META_PHONE_NUMBER_ID}
+      META_WEBHOOK_VERIFY_TOKEN:  ${META_WEBHOOK_VERIFY_TOKEN}
+      TENANT_ID:                  ${TENANT_ID}
+      FOLLOWUP_DELAY_MS:          ${FOLLOWUP_DELAY_MS:-3600000}
+      CLOSE_DELAY_MS:             ${CLOSE_DELAY_MS:-86400000}
+    restart: unless-stopped
+
+  # ── AI Agent microservice ─────────────────────────────────────────────────
+  ai-agent:
+    build:
+      context: ./ai-agent
+      dockerfile: Dockerfile
+    ports:
+      - "3002:3002"
+    environment:
+      NODE_ENV:        production
+      AI_AGENT_PORT:   3002
+      OPENAI_API_KEY:  ${OPENAI_API_KEY}
+    restart: unless-stopped

@@ -1,0 +1,31 @@
+# Dependencias
+node_modules/
+
+# Variables de entorno (NUNCA subir al repo)
+.env
+.env.local
+.env.production
+.env.*.local
+
+# Build outputs
+dist/
+.next/
+out/
+
+# TypeScript cache
+*.tsbuildinfo
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+
+# Docker
+*.env.docker
