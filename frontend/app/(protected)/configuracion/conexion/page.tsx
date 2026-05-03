@@ -1,23 +1,14 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { apiFetch } from '@/lib/api'
-
-interface TenantSettings {
-  name:                 string | null
-  whatsapp_number:      string | null
-  phone_number_id:      string | null
-  meta_token:           string | null
-  webhook_verify_token: string | null
-}
+import { createClient } from '@/lib/supabase/client'
 
 export default function ConexionPage() {
-  const [tenant,  setTenant]  = useState<TenantSettings | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [saving,  setSaving]  = useState(false)
-  const [error,   setError]   = useState('')
-  const [saved,   setSaved]   = useState(false)
-
+  const [tenantId,  setTenantId]  = useState<string | null>(null)
+  const [loading,   setLoading]   = useState(true)
+  const [saving,    setSaving]    = useState(false)
+  const [saved,     setSaved]     = useState(false)
+  const [error,     setError]     = useState('')
   const [form, setForm] = useState({
     whatsapp_number:      '',
     phone_number_id:      '',
@@ -25,78 +16,107 @@ export default function ConexionPage() {
     webhook_verify_token: '',
   })
 
+  // ─── cargar tenant actual ──────────────────────────────────────────────────
   useEffect(() => {
-    apiFetch<TenantSettings>('/api/tenants/settings')
-      .then((data) => {
-        setTenant(data)
-        if (data) setForm({
+    async function load() {
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) { setLoading(false); return }
+
+      const { data } = await supabase
+        .from('tenants')
+        .select('id, whatsapp_number, phone_number_id, meta_token, webhook_verify_token')
+        .eq('user_id', user.id)
+        .maybeSingle()
+
+      if (data) {
+        setTenantId(data.id)
+        setForm({
           whatsapp_number:      data.whatsapp_number ?? '',
           phone_number_id:      data.phone_number_id ?? '',
           meta_token:           data.meta_token ?? '',
           webhook_verify_token: data.webhook_verify_token ?? '',
         })
-      })
-      .catch((err) => setError('No se pudo cargar la configuración. ' + (err?.message ?? '')))
-      .finally(() => setLoading(false))
+      }
+      setLoading(false)
+    }
+    load()
   }, [])
 
-  const isConnected = !!(tenant?.whatsapp_number && tenant?.meta_token && !tenant.meta_token.startsWith('••'))
+  const isConnected = !!(tenantId && form.whatsapp_number && form.meta_token && !form.meta_token.startsWith('••'))
 
+  // ─── guardar ───────────────────────────────────────────────────────────────
   async function handleSave() {
     setError('')
-
     if (!form.whatsapp_number.trim()) { setError('El número de WhatsApp es obligatorio'); return }
-    if (!form.meta_token.trim())      { setError('El Meta Access Token es obligatorio'); return }
     if (!form.phone_number_id.trim()) { setError('El Phone Number ID es obligatorio'); return }
+    if (!form.meta_token.trim())      { setError('El Meta Access Token es obligatorio'); return }
 
     setSaving(true)
     try {
-      await apiFetch('/api/tenants/settings', {
-        method: 'PUT',
-        body: JSON.stringify({
-          // Preservar el nombre existente (requerido NOT NULL en tenants)
-          name:                 tenant?.name ?? 'Mi Negocio',
-          whatsapp_number:      form.whatsapp_number.trim(),
-          phone_number_id:      form.phone_number_id.trim(),
-          meta_token:           form.meta_token.trim(),
-          webhook_verify_token: form.webhook_verify_token.trim() || null,
-        }),
-      })
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error('No autenticado')
 
-      // Actualizar estado local para reflejar "conectado"
-      setTenant((prev) => ({
-        ...prev,
+      // 1. Asegurar que el usuario existe en public.users
+      await supabase
+        .from('users')
+        .upsert({ id: user.id, email: user.email ?? '' }, { onConflict: 'id' })
+
+      const payload = {
         whatsapp_number:      form.whatsapp_number.trim(),
-        phone_number_id:      form.phone_number_id.trim(),
+        phone_number_id:      form.phone_number_id.trim() || null,
         meta_token:           form.meta_token.trim(),
         webhook_verify_token: form.webhook_verify_token.trim() || null,
-        name:                 prev?.name ?? 'Mi Negocio',
-      }))
+      }
+
+      if (tenantId) {
+        // 2a. Tenant existe → UPDATE
+        const { error: updErr } = await supabase
+          .from('tenants')
+          .update(payload)
+          .eq('id', tenantId)
+
+        if (updErr) throw new Error(updErr.message)
+      } else {
+        // 2b. Primer acceso → INSERT
+        const { data: newTenant, error: insErr } = await supabase
+          .from('tenants')
+          .insert({ user_id: user.id, name: 'Mi Negocio', ...payload })
+          .select('id')
+          .single()
+
+        if (insErr) throw new Error(insErr.message)
+        setTenantId(newTenant.id)
+      }
 
       setSaved(true)
       setTimeout(() => setSaved(false), 4000)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al guardar. Verifica que el backend esté corriendo y las credenciales sean correctas.')
+      const msg = err instanceof Error ? err.message : 'Error desconocido'
+      if (msg.includes('duplicate') || msg.includes('unique')) {
+        setError('Ese número de WhatsApp ya está registrado en otra cuenta.')
+      } else {
+        setError(msg)
+      }
     } finally {
       setSaving(false)
     }
   }
 
+  // ─── desconectar ───────────────────────────────────────────────────────────
   async function handleDisconnect() {
     if (!confirm('¿Desconectar WhatsApp? Se borrarán las credenciales Meta.')) return
+    if (!tenantId) return
     setError('')
     try {
-      await apiFetch('/api/tenants/settings', {
-        method: 'PUT',
-        body: JSON.stringify({
-          name:            tenant?.name ?? 'Mi Negocio',
-          whatsapp_number: '',
-          phone_number_id: null,
-          meta_token:      null,
-        }),
-      })
-      setTenant((prev) => prev ? { ...prev, whatsapp_number: null, phone_number_id: null, meta_token: null } : prev)
-      setForm({ whatsapp_number: '', phone_number_id: '', meta_token: '', webhook_verify_token: '' })
+      const supabase = createClient()
+      const { error: err } = await supabase
+        .from('tenants')
+        .update({ meta_token: null, phone_number_id: null, webhook_verify_token: null })
+        .eq('id', tenantId)
+      if (err) throw new Error(err.message)
+      setForm((p) => ({ ...p, meta_token: '', phone_number_id: '', webhook_verify_token: '' }))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al desconectar')
     }
@@ -111,22 +131,19 @@ export default function ConexionPage() {
         <p className="mt-1 text-sm text-gray-500">Conecta tu número de WhatsApp Business vía Meta Cloud API</p>
       </div>
 
-      {/* Estado */}
+      {/* Badge de estado */}
       <div style={{
-        background: isConnected ? 'rgba(16,185,129,0.08)' : saved ? 'rgba(16,185,129,0.08)' : 'rgba(245,158,11,0.08)',
-        border: `1px solid ${isConnected || saved ? 'rgba(16,185,129,0.25)' : 'rgba(245,158,11,0.25)'}`
-      }}
-        className="mb-6 flex items-center gap-4 rounded-2xl p-4">
+        background: isConnected || saved ? 'rgba(16,185,129,0.08)' : 'rgba(245,158,11,0.08)',
+        border: `1px solid ${isConnected || saved ? 'rgba(16,185,129,0.25)' : 'rgba(245,158,11,0.25)'}`,
+      }} className="mb-6 flex items-center gap-4 rounded-2xl p-4">
         <div className={`h-3 w-3 shrink-0 rounded-full ${isConnected || saved ? 'bg-emerald-400' : 'bg-amber-400'}`}
-          style={{ boxShadow: isConnected || saved ? '0 0 8px rgba(16,185,129,0.8)' : 'none' }} />
+          style={{ boxShadow: isConnected || saved ? '0 0 8px rgba(16,185,129,0.7)' : 'none' }} />
         <div className="flex-1">
           <p className={`text-sm font-semibold ${isConnected || saved ? 'text-emerald-400' : 'text-amber-400'}`}>
-            {isConnected ? 'WhatsApp conectado' : saved ? '✓ Guardado correctamente' : 'Sin conectar'}
+            {saved ? '✓ Guardado en Supabase' : isConnected ? 'WhatsApp conectado' : 'Sin conectar'}
           </p>
           <p className="text-xs text-gray-500">
-            {isConnected
-              ? `Número: ${tenant?.whatsapp_number}`
-              : 'Completa el formulario y haz click en Conectar WhatsApp'}
+            {isConnected ? `Número: ${form.whatsapp_number}` : 'Completa el formulario para conectar tu número'}
           </p>
         </div>
         {isConnected && (
@@ -183,9 +200,8 @@ export default function ConexionPage() {
         <DField label="Webhook Verify Token" value={form.webhook_verify_token}
           onChange={(v) => setForm((p) => ({ ...p, webhook_verify_token: v }))}
           placeholder="mi-token-secreto-personalizado"
-          hint="Opcional — cadena secreta que defines tú para verificar el webhook en Meta" />
+          hint="Cadena secreta que defines tú para verificar el webhook en Meta" />
 
-        {/* Error */}
         {error && (
           <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)' }}
             className="rounded-xl px-4 py-3 text-sm text-red-400">
@@ -195,7 +211,7 @@ export default function ConexionPage() {
 
         <div className="flex items-start justify-between gap-4 pt-1">
           <div>
-            <p className="text-[10px] text-gray-600">Webhook URL para pegar en Meta:</p>
+            <p className="text-[10px] text-gray-600 mb-0.5">Webhook URL para Meta:</p>
             <code className="text-[11px] text-violet-400 break-all">
               {process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'}/api/whatsapp/webhook
             </code>
