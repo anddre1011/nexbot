@@ -32,13 +32,30 @@ router.post('/webhook', async (req, res) => {
   const messages = value?.messages
   if (!messages?.length) return
 
-  const raw  = messages[0]
-  const from = raw.from as string
-  const type = raw.type as string
+  const raw           = messages[0]
+  const from          = raw.from as string
+  const type          = raw.type as string
+  const phoneNumberId = value?.metadata?.phone_number_id as string | undefined
 
-  const tenantId = process.env.TENANT_ID
+  // Buscar tenant por phone_number_id (multi-tenant) o fallback a TENANT_ID (single)
+  let tenantId: string | undefined
+
+  if (phoneNumberId) {
+    const { data } = await supabase
+      .from('tenants')
+      .select('id')
+      .eq('phone_number_id', phoneNumberId)
+      .eq('active', true)
+      .single()
+    tenantId = data?.id
+  }
+
   if (!tenantId) {
-    console.error('[webhook] TENANT_ID not set')
+    tenantId = process.env.TENANT_ID
+  }
+
+  if (!tenantId) {
+    console.error(`[webhook] No tenant found for phone_number_id="${phoneNumberId}" and TENANT_ID not set`)
     return
   }
 
