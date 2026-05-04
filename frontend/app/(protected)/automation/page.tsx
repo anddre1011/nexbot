@@ -345,7 +345,7 @@ function KeywordForm({ flows, onSubmit, error, loading }: {
 function WebhookTab() {
   const [copied, setCopied] = useState<string | null>(null)
 
-  const webhookUrl   = `${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'}/api/whatsapp/webhook`
+  const webhookUrl   = `${process.env.NEXT_PUBLIC_APP_URL ?? process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'}/api/whatsapp/webhook`
   const verifyNote   = 'El valor de META_WEBHOOK_VERIFY_TOKEN que configuraste en backend/.env'
 
   function copy(text: string, key: string) {

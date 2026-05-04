@@ -223,7 +223,7 @@ export default function ConexionPage() {
           <div>
             <p className="text-[10px] text-gray-600 mb-0.5">Webhook URL para Meta:</p>
             <code className="text-[11px] text-violet-400 break-all">
-              {process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'}/api/whatsapp/webhook
+              {process.env.NEXT_PUBLIC_APP_URL ?? process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'}/api/whatsapp/webhook
             </code>
           </div>
           <button onClick={handleSave} disabled={saving}
