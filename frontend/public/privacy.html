@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Política de Privacidad — NexBot</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500&display=swap');
+  :root {
+    --bg: #0a0a0f;
+    --surface: #13131a;
+    --border: #1e1e2e;
+    --accent: #6c63ff;
+    --accent2: #00d4aa;
+    --text: #e8e8f0;
+    --muted: #6b6b8a;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--bg); color: var(--text); font-family: 'DM Sans', sans-serif; line-height: 1.7; }
+  .hero {
+    padding: 80px 40px 60px;
+    border-bottom: 1px solid var(--border);
+    max-width: 760px;
+    margin: 0 auto;
+  }
+  .badge {
+    display: inline-block;
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    color: var(--accent2);
+    border: 1px solid var(--accent2);
+    padding: 4px 12px;
+    border-radius: 20px;
+    margin-bottom: 24px;
+    letter-spacing: 0.08em;
+  }
+  h1 {
+    font-family: 'Space Mono', monospace;
+    font-size: clamp(28px, 5vw, 44px);
+    font-weight: 700;
+    line-height: 1.2;
+    margin-bottom: 16px;
+  }
+  h1 span { color: var(--accent); }
+  .updated {
+    font-size: 13px;
+    color: var(--muted);
+    font-family: 'Space Mono', monospace;
+  }
+  .content {
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 60px 40px 100px;
+  }
+  .section {
+    margin-bottom: 48px;
+    padding: 32px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    position: relative;
+  }
+  .section::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0;
+    width: 3px; height: 100%;
+    background: linear-gradient(180deg, var(--accent), var(--accent2));
+    border-radius: 3px 0 0 3px;
+  }
+  h2 {
+    font-family: 'Space Mono', monospace;
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--accent2);
+    margin-bottom: 16px;
+    letter-spacing: 0.04em;
+  }
+  p { color: #b0b0c8; margin-bottom: 12px; font-size: 15px; }
+  p:last-child { margin-bottom: 0; }
+  ul { color: #b0b0c8; padding-left: 20px; font-size: 15px; }
+  ul li { margin-bottom: 8px; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .footer {
+    text-align: center;
+    padding: 40px;
+    border-top: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 13px;
+    font-family: 'Space Mono', monospace;
+  }
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <div class="badge">LEGAL</div>
+  <h1>Política de <span>Privacidad</span></h1>
+  <p class="updated">Última actualización: Mayo 2026</p>
+</div>
+
+<div class="content">
+
+  <div class="section">
+    <h2>01 — INTRODUCCIÓN</h2>
+    <p>NexBot ("nosotros", "nuestro") opera la plataforma accesible en <a href="https://nexbot.pro">nexbot.pro</a>. Esta política describe cómo recopilamos, usamos y protegemos tu información personal cuando usas nuestros servicios.</p>
+  </div>
+
+  <div class="section">
+    <h2>02 — INFORMACIÓN QUE RECOPILAMOS</h2>
+    <ul>
+      <li>Información de cuenta: nombre, correo electrónico y credenciales de acceso.</li>
+      <li>Datos de integración: tokens de acceso de WhatsApp Business API y Phone Number IDs que configures en nuestra plataforma.</li>
+      <li>Datos de conversación: mensajes de WhatsApp procesados por el agente IA para generar respuestas automáticas.</li>
+      <li>Datos de uso: registros de acceso, errores y métricas de rendimiento del sistema.</li>
+    </ul>
+  </div>
+
+  <div class="section">
+    <h2>03 — USO DE LA INFORMACIÓN</h2>
+    <p>Usamos tu información para:</p>
+    <ul>
+      <li>Proveer y mantener el servicio de atención automatizada vía WhatsApp.</li>
+      <li>Procesar mensajes entrantes y generar respuestas mediante inteligencia artificial.</li>
+      <li>Mejorar la plataforma y solucionar problemas técnicos.</li>
+      <li>Comunicarnos contigo sobre actualizaciones o cambios importantes del servicio.</li>
+    </ul>
+  </div>
+
+  <div class="section">
+    <h2>04 — COMPARTIR INFORMACIÓN</h2>
+    <p>No vendemos ni compartimos tu información personal con terceros, excepto:</p>
+    <ul>
+      <li><strong>Meta / WhatsApp Business API:</strong> para el envío y recepción de mensajes según los Términos de Servicio de Meta.</li>
+      <li><strong>Supabase:</strong> base de datos donde se almacena la configuración de tu cuenta.</li>
+      <li><strong>OpenAI:</strong> procesamiento de mensajes para generar respuestas automáticas del agente IA.</li>
+    </ul>
+  </div>
+
+  <div class="section">
+    <h2>05 — SEGURIDAD</h2>
+    <p>Implementamos medidas de seguridad técnicas y organizativas para proteger tu información, incluyendo cifrado SSL/TLS en todas las comunicaciones y almacenamiento seguro de credenciales.</p>
+  </div>
+
+  <div class="section">
+    <h2>06 — TUS DERECHOS</h2>
+    <p>Tienes derecho a acceder, corregir o eliminar tu información personal en cualquier momento. Para ejercer estos derechos, contáctanos en:</p>
+    <p><a href="mailto:soporte@nexbot.pro">soporte@nexbot.pro</a></p>
+  </div>
+
+  <div class="section">
+    <h2>07 — CAMBIOS A ESTA POLÍTICA</h2>
+    <p>Podemos actualizar esta política ocasionalmente. Te notificaremos de cambios significativos publicando la nueva política en esta página con la fecha de actualización.</p>
+  </div>
+
+  <div class="section">
+    <h2>08 — CONTACTO</h2>
+    <p>Si tienes preguntas sobre esta política de privacidad, contáctanos:</p>
+    <p>📧 <a href="mailto:soporte@nexbot.pro">soporte@nexbot.pro</a></p>
+    <p>🌐 <a href="https://nexbot.pro">nexbot.pro</a></p>
+  </div>
+
+</div>
+
+<div class="footer">
+  © 2026 NexBot — Todos los derechos reservados
+</div>
+
+</body>
+</html>
