@@ -11,6 +11,10 @@ async function getTenantId(userId: string): Promise<string | null> {
   return data?.id ?? null
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// FLUJOS (base)
+// ═══════════════════════════════════════════════════════════════════
+
 // ─── GET /api/flows ───────────────────────────────────────────────────────────
 router.get('/', async (_req, res) => {
   const tenantId = await getTenantId(res.locals.user.id)
@@ -18,7 +22,7 @@ router.get('/', async (_req, res) => {
 
   const { data, error } = await supabase
     .from('flows')
-    .select('id, name, type, model, system_prompt, handoff_agent_name, welcome_items, inactivity_messages, executions, active, created_at')
+    .select('id, name, type, model, system_prompt, handoff_agent_name, welcome_items, inactivity_messages, conversion_enabled, conversion_message, executions, active, created_at')
     .eq('tenant_id', tenantId)
     .order('created_at', { ascending: false })
 
@@ -107,6 +111,255 @@ Responde SOLO con el prompt, sin explicación.`,
   })
 
   res.json({ prompt: completion.choices[0].message.content?.trim() ?? '' })
+})
+
+// ═══════════════════════════════════════════════════════════════════
+// FLOW STEPS (pasos del flujo inicial)
+// ═══════════════════════════════════════════════════════════════════
+
+// ─── GET /api/flows/:id/steps ─────────────────────────────────────────────────
+router.get('/:id/steps', async (req, res) => {
+  const { data, error } = await supabase
+    .from('flow_steps')
+    .select('*')
+    .eq('flow_id', req.params.id)
+    .order('position', { ascending: true })
+
+  if (error) { res.status(500).json({ error: error.message }); return }
+  res.json(data)
+})
+
+// ─── POST /api/flows/:id/steps ────────────────────────────────────────────────
+router.post('/:id/steps', async (req, res) => {
+  const { type, content, media_url, delay_ms, buttons, position } = req.body
+  if (!type) { res.status(400).json({ error: 'type is required' }); return }
+
+  // Auto-calcular posición si no se provee
+  let pos = position
+  if (pos == null) {
+    const { data: maxPos } = await supabase
+      .from('flow_steps')
+      .select('position')
+      .eq('flow_id', req.params.id)
+      .order('position', { ascending: false })
+      .limit(1)
+      .single()
+    pos = (maxPos?.position ?? -1) + 1
+  }
+
+  const { data, error } = await supabase
+    .from('flow_steps')
+    .insert({
+      flow_id:   req.params.id,
+      type,
+      content:   content   ?? null,
+      media_url: media_url ?? null,
+      delay_ms:  delay_ms  ?? 2000,
+      buttons:   buttons   ?? [],
+      position:  pos,
+    })
+    .select('*')
+    .single()
+
+  if (error) { res.status(500).json({ error: error.message }); return }
+  res.status(201).json(data)
+})
+
+// ─── PATCH /api/flows/:flowId/steps/:stepId ───────────────────────────────────
+router.patch('/:flowId/steps/:stepId', async (req, res) => {
+  const allowed = ['type', 'content', 'media_url', 'delay_ms', 'buttons', 'position']
+  const updates: Record<string, unknown> = {}
+  for (const key of allowed) {
+    if (req.body[key] !== undefined) updates[key] = req.body[key]
+  }
+
+  const { data, error } = await supabase
+    .from('flow_steps')
+    .update(updates)
+    .eq('id', req.params.stepId)
+    .eq('flow_id', req.params.flowId)
+    .select('*')
+    .single()
+
+  if (error) { res.status(500).json({ error: error.message }); return }
+  res.json(data)
+})
+
+// ─── PUT /api/flows/:id/steps/reorder ─────────────────────────────────────────
+router.put('/:id/steps/reorder', async (req, res) => {
+  const { order } = req.body as { order: string[] } // array de IDs en nuevo orden
+  if (!Array.isArray(order)) { res.status(400).json({ error: 'order array required' }); return }
+
+  const promises = order.map((stepId, i) =>
+    supabase.from('flow_steps').update({ position: i }).eq('id', stepId).eq('flow_id', req.params.id)
+  )
+  await Promise.all(promises)
+  res.json({ ok: true })
+})
+
+// ─── DELETE /api/flows/:flowId/steps/:stepId ──────────────────────────────────
+router.delete('/:flowId/steps/:stepId', async (req, res) => {
+  const { error } = await supabase
+    .from('flow_steps')
+    .delete()
+    .eq('id', req.params.stepId)
+    .eq('flow_id', req.params.flowId)
+
+  if (error) { res.status(500).json({ error: error.message }); return }
+  res.json({ ok: true })
+})
+
+// ═══════════════════════════════════════════════════════════════════
+// FLOW CONVERSIONS ({{function:conversion}})
+// ═══════════════════════════════════════════════════════════════════
+
+// ─── GET /api/flows/:id/conversions ───────────────────────────────────────────
+router.get('/:id/conversions', async (req, res) => {
+  const { data, error } = await supabase
+    .from('flow_conversions')
+    .select('*, products:product_id(id, name, price, currency, delivery_url)')
+    .eq('flow_id', req.params.id)
+    .order('position', { ascending: true })
+
+  if (error) { res.status(500).json({ error: error.message }); return }
+  res.json(data)
+})
+
+// ─── POST /api/flows/:id/conversions ──────────────────────────────────────────
+router.post('/:id/conversions', async (req, res) => {
+  const { function_name, product_id, kanban_stage, disable_ai, delivery_enabled, confirm_message } = req.body
+  if (!function_name) { res.status(400).json({ error: 'function_name is required' }); return }
+
+  const { data, error } = await supabase
+    .from('flow_conversions')
+    .insert({
+      flow_id:           req.params.id,
+      function_name:     function_name,
+      product_id:        product_id       ?? null,
+      kanban_stage:      kanban_stage      ?? 'converted',
+      disable_ai:        disable_ai        ?? true,
+      delivery_enabled:  delivery_enabled  ?? true,
+      confirm_message:   confirm_message   ?? null,
+    })
+    .select('*, products:product_id(id, name, price, currency)')
+    .single()
+
+  if (error) { res.status(500).json({ error: error.message }); return }
+  res.status(201).json(data)
+})
+
+// ─── PATCH /api/flows/:flowId/conversions/:convId ─────────────────────────────
+router.patch('/:flowId/conversions/:convId', async (req, res) => {
+  const allowed = ['function_name', 'product_id', 'kanban_stage', 'disable_ai', 'delivery_enabled', 'confirm_message', 'confirm_steps']
+  const updates: Record<string, unknown> = {}
+  for (const key of allowed) {
+    if (req.body[key] !== undefined) updates[key] = req.body[key]
+  }
+
+  const { data, error } = await supabase
+    .from('flow_conversions')
+    .update(updates)
+    .eq('id', req.params.convId)
+    .eq('flow_id', req.params.flowId)
+    .select('*, products:product_id(id, name, price, currency)')
+    .single()
+
+  if (error) { res.status(500).json({ error: error.message }); return }
+  res.json(data)
+})
+
+// ─── DELETE /api/flows/:flowId/conversions/:convId ────────────────────────────
+router.delete('/:flowId/conversions/:convId', async (req, res) => {
+  const { error } = await supabase
+    .from('flow_conversions')
+    .delete()
+    .eq('id', req.params.convId)
+    .eq('flow_id', req.params.flowId)
+
+  if (error) { res.status(500).json({ error: error.message }); return }
+  res.json({ ok: true })
+})
+
+// ═══════════════════════════════════════════════════════════════════
+// FLOW INACTIVITY RULES
+// ═══════════════════════════════════════════════════════════════════
+
+// ─── GET /api/flows/:id/inactivity-rules ──────────────────────────────────────
+router.get('/:id/inactivity-rules', async (req, res) => {
+  const { data, error } = await supabase
+    .from('flow_inactivity_rules')
+    .select('*')
+    .eq('flow_id', req.params.id)
+    .order('position', { ascending: true })
+
+  if (error) { res.status(500).json({ error: error.message }); return }
+  res.json(data)
+})
+
+// ─── POST /api/flows/:id/inactivity-rules ─────────────────────────────────────
+router.post('/:id/inactivity-rules', async (req, res) => {
+  const { delay_ms, type, content, media_url, position } = req.body
+  if (!delay_ms || !type) { res.status(400).json({ error: 'delay_ms and type required' }); return }
+
+  let pos = position
+  if (pos == null) {
+    const { data: maxPos } = await supabase
+      .from('flow_inactivity_rules')
+      .select('position')
+      .eq('flow_id', req.params.id)
+      .order('position', { ascending: false })
+      .limit(1)
+      .single()
+    pos = (maxPos?.position ?? -1) + 1
+  }
+
+  const { data, error } = await supabase
+    .from('flow_inactivity_rules')
+    .insert({
+      flow_id:   req.params.id,
+      delay_ms,
+      type,
+      content:   content   ?? null,
+      media_url: media_url ?? null,
+      position:  pos,
+    })
+    .select('*')
+    .single()
+
+  if (error) { res.status(500).json({ error: error.message }); return }
+  res.status(201).json(data)
+})
+
+// ─── PATCH /api/flows/:flowId/inactivity-rules/:ruleId ────────────────────────
+router.patch('/:flowId/inactivity-rules/:ruleId', async (req, res) => {
+  const allowed = ['delay_ms', 'type', 'content', 'media_url', 'position']
+  const updates: Record<string, unknown> = {}
+  for (const key of allowed) {
+    if (req.body[key] !== undefined) updates[key] = req.body[key]
+  }
+
+  const { data, error } = await supabase
+    .from('flow_inactivity_rules')
+    .update(updates)
+    .eq('id', req.params.ruleId)
+    .eq('flow_id', req.params.flowId)
+    .select('*')
+    .single()
+
+  if (error) { res.status(500).json({ error: error.message }); return }
+  res.json(data)
+})
+
+// ─── DELETE /api/flows/:flowId/inactivity-rules/:ruleId ───────────────────────
+router.delete('/:flowId/inactivity-rules/:ruleId', async (req, res) => {
+  const { error } = await supabase
+    .from('flow_inactivity_rules')
+    .delete()
+    .eq('id', req.params.ruleId)
+    .eq('flow_id', req.params.flowId)
+
+  if (error) { res.status(500).json({ error: error.message }); return }
+  res.json({ ok: true })
 })
 
 export default router

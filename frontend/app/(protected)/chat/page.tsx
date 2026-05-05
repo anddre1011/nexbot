@@ -64,6 +64,9 @@ export default function ChatPage() {
   const [search,        setSearch]        = useState('')
   const [tab,           setTab]           = useState<Tab>('all')
   const [loadingMsgs,   setLoadingMsgs]   = useState(false)
+  const [showFilters,   setShowFilters]   = useState(false)
+  const [filterKanban,  setFilterKanban]  = useState('all')
+  const [filterConverted, setFilterConverted] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
 
   const selected = conversations.find((c) => c.id === selectedId) ?? null
@@ -148,7 +151,6 @@ export default function ChatPage() {
     }
   }
 
-  // ─── filtros ────────────────────────────────────────────────────────────────
   const filtered = conversations.filter((c) => {
     const matchSearch =
       !search ||
@@ -160,7 +162,10 @@ export default function ChatPage() {
       (tab === 'assigned' && c.status === 'human') ||
       (tab === 'unassigned' && c.status === 'bot')
 
-    return matchSearch && matchTab
+    const matchKanban = filterKanban === 'all' || c.status === filterKanban
+    const matchConverted = !filterConverted || c.status === 'closed'
+
+    return matchSearch && matchTab && matchKanban && matchConverted
   })
 
   // ─── render ──────────────────────────────────────────────────────────────────
@@ -171,17 +176,53 @@ export default function ChatPage() {
       <aside className="flex w-80 shrink-0 flex-col border-r border-white/5 bg-[#141414]">
         {/* buscador */}
         <div className="p-3">
-          <div className="flex items-center gap-2 rounded-lg bg-white/5 px-3 py-2">
-            <svg className="h-4 w-4 shrink-0 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Buscar conversación..."
-              className="w-full bg-transparent text-sm text-gray-200 placeholder-gray-500 outline-none"
-            />
+          <div className="flex items-center gap-2 mb-2">
+            <div className="flex items-center gap-2 rounded-lg bg-white/5 px-3 py-2 flex-1">
+              <svg className="h-4 w-4 shrink-0 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Buscar conversación..."
+                className="w-full bg-transparent text-sm text-gray-200 placeholder-gray-500 outline-none"
+              />
+            </div>
+            <button onClick={() => setShowFilters(!showFilters)}
+              className={`shrink-0 rounded-lg px-2.5 py-2 text-xs font-medium transition-colors ${showFilters ? 'bg-violet-600 text-white' : 'bg-white/5 text-gray-400 hover:text-white'}`}>
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+              </svg>
+            </button>
           </div>
+
+          {/* Filtros avanzados */}
+          {showFilters && (
+            <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}
+              className="rounded-xl p-3 mb-2 space-y-2">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">Filtrar conversas</p>
+              <div>
+                <label className="text-[10px] text-gray-500 mb-0.5 block">Kanban</label>
+                <select value={filterKanban} onChange={(e) => setFilterKanban(e.target.value)}
+                  style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)' }}
+                  className="w-full rounded-lg px-2 py-1.5 text-xs text-gray-200 outline-none">
+                  <option value="all" className="bg-[#1a1a1a]">Todos os estágios</option>
+                  <option value="human" className="bg-[#1a1a1a]">Humano</option>
+                  <option value="bot" className="bg-[#1a1a1a]">Em Atendimento</option>
+                  <option value="closed" className="bg-[#1a1a1a]">Vendas</option>
+                  <option value="disqualified" className="bg-[#1a1a1a]">Descalificado</option>
+                  <option value="abandoned" className="bg-[#1a1a1a]">Abandono</option>
+                </select>
+              </div>
+              <label className="flex items-center justify-between">
+                <span className="text-[10px] text-gray-400">Apenas convertidos</span>
+                <button onClick={() => setFilterConverted(!filterConverted)}
+                  className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${filterConverted ? 'bg-emerald-600' : 'bg-white/10'}`}>
+                  <span className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform ${filterConverted ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                </button>
+              </label>
+            </div>
+          )}
         </div>
 
         {/* tabs */}

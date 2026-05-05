@@ -32,13 +32,20 @@ router.post('/campaigns', async (req, res) => {
   const tenantId = await getTenantId(res.locals.user.id)
   if (!tenantId) { res.status(404).json({ error: 'Tenant not found' }); return }
 
-  const { name, flow_id, meta_ad_source_id } = req.body
+  const { name, flow_id, product_id, meta_ad_source_id, source_ids } = req.body
   if (!name?.trim()) { res.status(400).json({ error: 'name is required' }); return }
 
   const { data, error } = await supabase
     .from('automation_campaigns')
-    .insert({ tenant_id: tenantId, name: name.trim(), flow_id: flow_id ?? null, meta_ad_source_id: meta_ad_source_id?.trim() ?? null })
-    .select('id, name, meta_ad_source_id, executions, active, created_at')
+    .insert({
+      tenant_id: tenantId,
+      name: name.trim(),
+      flow_id: flow_id ?? null,
+      product_id: product_id ?? null,
+      meta_ad_source_id: meta_ad_source_id?.trim() ?? null,
+      source_ids: source_ids ?? [],
+    })
+    .select('id, name, meta_ad_source_id, source_ids, executions, active, created_at')
     .single()
 
   if (error) { res.status(500).json({ error: error.message }); return }

@@ -10,6 +10,8 @@ interface Product {
   name:         string
   type:         ProductType
   price:        number
+  currency:     string
+  banner_url:   string | null
   description:  string | null
   delivery_url: string | null
   active:       boolean
@@ -96,7 +98,7 @@ export default function ProductsPage() {
             <h1 className="text-xl font-bold text-gray-100">Productos</h1>
             <span className="text-sm text-gray-500">{loading ? '…' : totalProducts} productos</span>
             <span className="rounded-lg bg-emerald-500/10 px-2.5 py-1 text-sm font-semibold text-emerald-400">
-              BOB {totalValue.toFixed(2)} catálogo activo
+              catálogo activo
             </span>
           </div>
           <button
@@ -299,6 +301,8 @@ function ProductModal({
   const [name,        setName]        = useState(product?.name         ?? '')
   const [type,        setType]        = useState<ProductType>(product?.type ?? 'digital')
   const [price,       setPrice]       = useState(String(product?.price ?? ''))
+  const [currency,    setCurrency]    = useState(product?.currency     ?? 'BOB')
+  const [bannerUrl,   setBannerUrl]   = useState(product?.banner_url   ?? '')
   const [description, setDescription] = useState(product?.description  ?? '')
   const [deliveryUrl, setDeliveryUrl] = useState(product?.delivery_url ?? '')
   const [folder,      setFolder]      = useState(product?.folder       ?? 'General')
@@ -306,6 +310,16 @@ function ProductModal({
   const [downsellId,  setDownsellId]  = useState(product?.downsell?.id ?? '')
   const [error,       setError]       = useState('')
   const [loading,     setLoading]     = useState(false)
+
+  const CURRENCIES = [
+    { code: 'BOB', label: 'BOB - Boliviano', flag: '🇧🇴' },
+    { code: 'BRL', label: 'BRL - Real Brasileño', flag: '🇧🇷' },
+    { code: 'COP', label: 'COP - Peso Colombiano', flag: '🇨🇴' },
+    { code: 'ARS', label: 'ARS - Peso Argentino', flag: '🇦🇷' },
+    { code: 'PEN', label: 'PEN - Sol Peruano', flag: '🇵🇪' },
+    { code: 'USD', label: 'USD - Dólar', flag: '🇺🇸' },
+    { code: 'MXN', label: 'MXN - Peso Mexicano', flag: '🇲🇽' },
+  ]
 
   const others = allProducts.filter((p) => p.id !== product?.id)
 
@@ -316,7 +330,8 @@ function ProductModal({
     setLoading(true); setError('')
 
     const body = {
-      name: name.trim(), type, price: Number(price),
+      name: name.trim(), type, price: Number(price), currency,
+      banner_url: bannerUrl.trim() || null,
       description: description.trim() || null,
       delivery_url: deliveryUrl.trim() || null,
       folder: folder.trim() || 'General',
@@ -373,12 +388,30 @@ function ProductModal({
               </select>
             </MField>
 
+            {/* moneda */}
+            <MField label="Moneda">
+              <select value={currency} onChange={(e) => setCurrency(e.target.value)}
+                className="modal-input">
+                {CURRENCIES.map(c => (
+                  <option key={c.code} value={c.code}>{c.flag} {c.label}</option>
+                ))}
+              </select>
+            </MField>
+
             {/* precio */}
-            <MField label="Precio (BOB)" required>
+            <MField label={`Precio (${currency})`} required>
               <input type="number" min="0" step="0.01" value={price}
                 onChange={(e) => setPrice(e.target.value)} placeholder="97.00"
                 className="modal-input" />
             </MField>
+
+            {/* banner */}
+            <div className="col-span-2">
+              <MField label="Banner (URL imagen 1920x1080)">
+                <input value={bannerUrl} onChange={(e) => setBannerUrl(e.target.value)}
+                  placeholder="https://supabase.co/storage/v1/..." className="modal-input" />
+              </MField>
+            </div>
 
             {/* carpeta */}
             <div className="col-span-2">

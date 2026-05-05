@@ -2,6 +2,9 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { apiFetch } from '@/lib/api'
+import FlowStepsBuilder from './FlowStepsBuilder'
+import ConversionFlowEditor from './ConversionFlowEditor'
+import InactivityRulesEditor from './InactivityRulesEditor'
 
 // ─── tipos ────────────────────────────────────────────────────────────────────
 type FlowType  = 'ai' | 'conversational_ai'
@@ -247,6 +250,18 @@ function FlowPanel({ flow, medias, onClose, onSaved }: {
   const [generating,   setGenerating]   = useState(false)
   const [showMediaPicker, setShowMediaPicker] = useState(false)
 
+  // ─── Estado de pasos, conversiones e inactividad ───────────────────────────
+  const [flowSteps, setFlowSteps] = useState<any[]>([])
+  const [conversions, setConversions] = useState<any[]>([])
+  const [inactRules, setInactRules] = useState<any[]>([])
+
+  useEffect(() => {
+    if (!flow?.id) return
+    apiFetch(`/api/flows/${flow.id}/steps`).then((d: any) => setFlowSteps(d)).catch(() => {})
+    apiFetch(`/api/flows/${flow.id}/conversions`).then((d: any) => setConversions(d)).catch(() => {})
+    apiFetch(`/api/flows/${flow.id}/inactivity-rules`).then((d: any) => setInactRules(d)).catch(() => {})
+  }, [flow?.id])
+
   function set<K extends keyof FormState>(k: K, v: FormState[K]) {
     setForm((p) => ({ ...p, [k]: v }))
   }
@@ -418,47 +433,35 @@ function FlowPanel({ flow, medias, onClose, onSaved }: {
           {/* Handoff */}
           <InputField label="Atendiente humano (handoff)" value={form.handoff_agent_name} onChange={(v) => set('handoff_agent_name', v)} placeholder="Nombre del agente" />
 
-          {/* Toggle conversión */}
-          <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}
-            className="rounded-xl p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-semibold text-white">Flujo de conversión</p>
-                <p className="text-xs text-gray-500">Activa acciones cuando el cliente convierte</p>
-              </div>
-              <button onClick={() => set('conversion_enabled', !form.conversion_enabled)}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${form.conversion_enabled ? 'bg-emerald-600' : 'bg-white/10'}`}>
-                <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${form.conversion_enabled ? 'translate-x-6' : 'translate-x-1'}`} />
-              </button>
+          {/* ═══ FLUJO INICIAL (solo modo conversacional) ═══ */}
+          {form.type === 'conversational_ai' && (
+            <div style={{ background: 'rgba(124,58,237,0.04)', border: '1px solid rgba(124,58,237,0.12)' }}
+              className="rounded-xl p-4">
+              <FlowStepsBuilder
+                flowId={flow?.id ?? null}
+                steps={flowSteps}
+                onChange={setFlowSteps}
+              />
             </div>
-            {form.conversion_enabled && (
-              <div className="mt-4">
-                <label className="mb-2 block text-xs font-bold uppercase tracking-widest text-gray-500">Mensaje al confirmar venta</label>
-                <textarea rows={3} value={form.conversion_message}
-                  onChange={(e) => set('conversion_message', e.target.value)}
-                  placeholder="¡Gracias! Tu pago fue confirmado. En breve te enviamos los detalles."
-                  style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.10)' }}
-                  className="w-full rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 resize-none transition-all" />
-              </div>
-            )}
+          )}
+
+          {/* ═══ FLUJOS DE CONVERSIÓN ═══ */}
+          <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)' }}
+            className="rounded-xl p-4">
+            <ConversionFlowEditor
+              flowId={flow?.id ?? null}
+              conversions={conversions}
+              onChange={setConversions}
+            />
           </div>
 
-          {/* Inactividad */}
-          <div>
-            <label className="mb-2 block text-xs font-bold uppercase tracking-widest text-gray-500">Inactividad — mensaje de seguimiento</label>
-            <div className="flex gap-2">
-              <input type="number" min="1" value={form.inactivity_delay}
-                onChange={(e) => set('inactivity_delay', e.target.value)}
-                style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.10)' }}
-                className="w-24 rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20 transition-all text-center" />
-              <select value={form.inactivity_unit} onChange={(e) => set('inactivity_unit', e.target.value as 'minutes' | 'hours')}
-                style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.10)' }}
-                className="flex-1 rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-violet-500 transition-all">
-                <option value="minutes" className="bg-[#1a1a1a]">Minutos</option>
-                <option value="hours"   className="bg-[#1a1a1a]">Horas</option>
-              </select>
-            </div>
-            <p className="mt-1.5 text-xs text-gray-600">Tiempo sin respuesta antes de enviar un mensaje de seguimiento al contacto</p>
+          {/* ═══ INACTIVIDAD ═══ */}
+          <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)' }}
+            className="rounded-xl p-4">
+            <InactivityRulesEditor
+              rules={inactRules}
+              onChange={setInactRules}
+            />
           </div>
         </div>
 

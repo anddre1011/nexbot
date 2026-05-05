@@ -3,39 +3,45 @@
 import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { apiFetch } from '@/lib/api'
+import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar } from 'recharts'
 
-interface TodayStats {
-  sales_today:          number
-  revenue_today:        number
-  conversations_today:  number
-  messages_sent_today:  number
-  conversion_rate:      string
+interface Overview {
+  conversations_total: number; ia_attending: number; conversion_rate: string
+  product_value: number; sales_count: number; clients: number; total_executions: number
 }
-
-interface Campaign {
-  id:            string
-  name:          string
-  meta_ad_id:    string | null
-  sales_count:   number
-  total_revenue: number
-}
-
+interface Campaign { id: string; name: string; meta_ad_id: string | null; sales_count: number; total_revenue: number }
+interface LeadByCampaign { name: string; leads: number; conversions: number; rate: string; revenue: number }
+interface TopProduct { name: string; count: number; revenue: number }
+interface ContactEvolution { date: string; count: number }
 interface Toast { id: string; message: string }
 
+const KANBAN_COLORS: Record<string, string> = {
+  bot: '#3b82f6', open: '#3b82f6', human: '#a855f7', closed: '#f97316',
+  converted: '#10b981', disqualified: '#ef4444', abandoned: '#f87171',
+}
+
 export default function DashboardPage() {
-  const [stats,     setStats]     = useState<TodayStats | null>(null)
+  const [overview, setOverview] = useState<Overview | null>(null)
   const [campaigns, setCampaigns] = useState<Campaign[]>([])
-  const [loading,   setLoading]   = useState(true)
-  const [toasts,    setToasts]    = useState<Toast[]>([])
+  const [leadsByCampaign, setLeadsByCampaign] = useState<LeadByCampaign[]>([])
+  const [topProducts, setTopProducts] = useState<TopProduct[]>([])
+  const [contactsEvo, setContactsEvo] = useState<ContactEvolution[]>([])
+  const [kanbanDist, setKanbanDist] = useState<Record<string, number>>({})
+  const [loading, setLoading] = useState(true)
+  const [toasts, setToasts] = useState<Toast[]>([])
 
   const fetchData = useCallback(async () => {
     try {
-      const [todayData, campaignData] = await Promise.all([
-        apiFetch<TodayStats>('/api/analytics/today'),
+      const [ov, camp, leads, prods, evo, kanban] = await Promise.all([
+        apiFetch<Overview>('/api/analytics/overview'),
         apiFetch<Campaign[]>('/api/analytics/campaigns'),
+        apiFetch<LeadByCampaign[]>('/api/analytics/leads-by-campaign').catch(() => []),
+        apiFetch<TopProduct[]>('/api/analytics/top-products').catch(() => []),
+        apiFetch<ContactEvolution[]>('/api/analytics/contacts-evolution').catch(() => []),
+        apiFetch<Record<string, number>>('/api/analytics/kanban-distribution').catch(() => ({})),
       ])
-      setStats(todayData)
-      setCampaigns(campaignData)
+      setOverview(ov); setCampaigns(camp); setLeadsByCampaign(leads)
+      setTopProducts(prods); setContactsEvo(evo); setKanbanDist(kanban)
     } catch (err) { console.error('[dashboard]', err) }
     finally { setLoading(false) }
   }, [])
@@ -61,56 +67,9 @@ export default function DashboardPage() {
     setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 4000)
   }
 
-  const metricCards = [
-    {
-      label: 'Ventas hoy',
-      value: loading ? '–' : String(stats?.sales_today ?? 0),
-      sub:   loading ? '...' : `$${(stats?.revenue_today ?? 0).toFixed(2)} generados`,
-      gradient: 'from-violet-600 to-purple-700',
-      glow: 'rgba(124,58,237,0.3)',
-      icon: (
-        <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-        </svg>
-      ),
-    },
-    {
-      label: 'Conversaciones',
-      value: loading ? '–' : String(stats?.conversations_today ?? 0),
-      sub:   'Iniciadas hoy',
-      gradient: 'from-blue-600 to-cyan-600',
-      glow: 'rgba(37,99,235,0.3)',
-      icon: (
-        <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
-        </svg>
-      ),
-    },
-    {
-      label: 'Mensajes enviados',
-      value: loading ? '–' : String(stats?.messages_sent_today ?? 0),
-      sub:   'Hoy',
-      gradient: 'from-emerald-600 to-teal-600',
-      glow: 'rgba(5,150,105,0.3)',
-      icon: (
-        <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-        </svg>
-      ),
-    },
-    {
-      label: 'Conversiones',
-      value: loading ? '–' : (stats?.conversion_rate ?? '0%'),
-      sub:   'Mensajes → ventas',
-      gradient: 'from-rose-600 to-pink-600',
-      glow: 'rgba(225,29,72,0.3)',
-      icon: (
-        <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-        </svg>
-      ),
-    },
-  ]
+  const kanbanData = Object.entries(kanbanDist).map(([name, value]) => ({ name, value }))
+  const kanbanTotal = Object.values(kanbanDist).reduce((a, b) => a + b, 0)
+  const L = loading
 
   return (
     <>
@@ -118,23 +77,23 @@ export default function DashboardPage() {
       <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-2">
         {toasts.map((t) => (
           <div key={t.id} style={{ background: 'linear-gradient(135deg, #7c3aed, #2563eb)', boxShadow: '0 8px 32px rgba(124,58,237,0.4)' }}
-            className="flex items-center gap-3 rounded-2xl px-5 py-3 text-sm font-semibold text-white">
+            className="flex items-center gap-3 rounded-2xl px-5 py-3 text-sm font-semibold text-white animate-in slide-in-from-right">
             {t.message}
             <button onClick={() => setToasts((p) => p.filter((x) => x.id !== t.id))} className="ml-2 opacity-70 hover:opacity-100">✕</button>
           </div>
         ))}
       </div>
 
-      <div className="p-8">
+      <div className="p-6 space-y-6 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 0px)' }}>
         {/* Header */}
-        <div className="mb-8 flex items-center justify-between">
+        <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-white">Dashboard</h1>
-            <p className="mt-1 text-sm text-gray-500">Actividad de hoy en tiempo real</p>
+            <p className="mt-1 text-sm text-gray-500">Sigue tus métricas y gestiona tu atención</p>
           </div>
           <button onClick={fetchData} disabled={loading}
             style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}
-            className="flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-medium text-gray-400 transition-all hover:bg-white/10 disabled:opacity-40">
+            className="flex items-center gap-2 rounded-xl px-4 py-2 text-xs text-gray-400 hover:bg-white/10 disabled:opacity-40">
             <svg className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
             </svg>
@@ -142,33 +101,148 @@ export default function DashboardPage() {
           </button>
         </div>
 
-        {/* Metric cards */}
-        <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          {metricCards.map((card) => (
-            <div key={card.label} style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', boxShadow: `0 8px 32px ${card.glow}` }}
-              className="relative overflow-hidden rounded-2xl p-6">
-              {/* Gradient accent top */}
-              <div style={{ background: `linear-gradient(135deg, var(--tw-gradient-from), var(--tw-gradient-to))` }}
-                className={`absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r ${card.gradient}`} />
-
-              <div className="mb-4 flex items-center justify-between">
-                <span className="text-xs font-semibold uppercase tracking-widest text-gray-500">{card.label}</span>
-                <div style={{ background: 'rgba(255,255,255,0.05)' }} className={`flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br ${card.gradient} text-white`}>
-                  {card.icon}
-                </div>
+        {/* KPI Cards */}
+        <div className="grid grid-cols-2 xl:grid-cols-6 gap-3">
+          {[
+            { label: 'Conversaciones', value: L ? '–' : String(overview?.conversations_total ?? 0), sub: `${overview?.conversations_total ?? 0} hoy`, icon: '💬', glow: 'rgba(59,130,246,0.15)' },
+            { label: 'IA Atendiendo', value: L ? '–' : String(overview?.ia_attending ?? 0), sub: `${overview?.ia_attending ?? 0} total`, icon: '🤖', glow: 'rgba(168,85,247,0.15)' },
+            { label: 'Tasa Conversión', value: L ? '–' : (overview?.conversion_rate ?? '0%'), sub: 'Personas que compraron', icon: '📈', glow: 'rgba(16,185,129,0.15)' },
+            { label: 'Valor Productos', value: L ? '–' : `BOB ${(overview?.product_value ?? 0).toFixed(2)}`, sub: 'Total vendido', icon: '💰', glow: 'rgba(245,158,11,0.15)' },
+            { label: 'Ventas', value: L ? '–' : String(overview?.sales_count ?? 0), sub: 'Productos vendidos', icon: '🛒', glow: 'rgba(239,68,68,0.15)' },
+            { label: 'Clientes', value: L ? '–' : String(overview?.clients ?? 0), sub: 'Contactos que compraron', icon: '👥', glow: 'rgba(6,182,212,0.15)' },
+          ].map(card => (
+            <div key={card.label} style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', boxShadow: `0 4px 24px ${card.glow}` }}
+              className="rounded-2xl p-4 hover:bg-white/[0.04] transition-all">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-500">{card.label}</span>
+                <span className="text-lg">{card.icon}</span>
               </div>
-
-              <p className={`text-4xl font-extrabold text-white ${loading ? 'animate-pulse opacity-40' : ''}`}>
-                {card.value}
-              </p>
-              <p className="mt-1.5 text-xs text-gray-500">{card.sub}</p>
+              <p className={`text-2xl font-extrabold text-white ${L ? 'animate-pulse' : ''}`}>{card.value}</p>
+              <p className="text-[10px] text-gray-600 mt-1">{card.sub}</p>
             </div>
           ))}
         </div>
 
-        {/* Campaigns table */}
-        <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}
-          className="rounded-2xl overflow-hidden">
+        {/* Charts row */}
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+          {/* Contacts Evolution */}
+          <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }} className="rounded-2xl p-5">
+            <h3 className="text-sm font-semibold text-white mb-1">Evolución de Contactos</h3>
+            <p className="text-[10px] text-gray-600 mb-4">Nuevos contactos por día</p>
+            <div className="h-48">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={contactsEvo}>
+                  <defs>
+                    <linearGradient id="colorCount" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#7c3aed" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="#7c3aed" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <XAxis dataKey="date" tick={{ fill: '#6b7280', fontSize: 10 }} tickLine={false} axisLine={false} />
+                  <YAxis tick={{ fill: '#6b7280', fontSize: 10 }} tickLine={false} axisLine={false} width={30} />
+                  <Tooltip contentStyle={{ background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, fontSize: 12 }} />
+                  <Area type="monotone" dataKey="count" stroke="#7c3aed" fill="url(#colorCount)" strokeWidth={2} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          {/* Leads by Campaign */}
+          <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }} className="rounded-2xl p-5">
+            <h3 className="text-sm font-semibold text-white mb-1">Leads por Campaña</h3>
+            <p className="text-[10px] text-gray-600 mb-4">Rendimiento de campañas</p>
+            <div className="flex flex-col gap-2 max-h-48 overflow-y-auto">
+              {leadsByCampaign.length === 0 ? (
+                <p className="text-xs text-gray-600 py-8 text-center">Sin datos de campañas</p>
+              ) : leadsByCampaign.map(c => (
+                <div key={c.name} style={{ background: 'rgba(255,255,255,0.03)' }} className="rounded-lg p-2.5">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs font-medium text-gray-300 truncate max-w-[200px]">{c.name}</span>
+                    <div className="flex items-center gap-2 text-[10px]">
+                      <span className="text-gray-500">{c.leads} leads</span>
+                      <span className="text-emerald-400">{c.conversions} conv.</span>
+                      <span className="text-amber-300">{c.rate}</span>
+                      <span className="font-bold text-emerald-400">BOB {c.revenue.toFixed(0)}</span>
+                    </div>
+                  </div>
+                  <div className="h-1.5 rounded-full bg-white/5 overflow-hidden">
+                    <div className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-emerald-400 transition-all"
+                      style={{ width: `${c.leads > 0 ? Math.min(100, (c.conversions / c.leads) * 100) : 0}%` }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Second row */}
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+          {/* Kanban Distribution */}
+          <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }} className="rounded-2xl p-5">
+            <h3 className="text-sm font-semibold text-white mb-1">Distribución Kanban</h3>
+            <p className="text-[10px] text-gray-600 mb-4">Conversaciones por etapa</p>
+            <div className="flex items-center gap-6">
+              <div className="h-40 w-40 shrink-0">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie data={kanbanData} dataKey="value" cx="50%" cy="50%" innerRadius={40} outerRadius={65} paddingAngle={2}>
+                      {kanbanData.map((entry) => (
+                        <Cell key={entry.name} fill={KANBAN_COLORS[entry.name] ?? '#6b7280'} />
+                      ))}
+                    </Pie>
+                    <Tooltip contentStyle={{ background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, fontSize: 12 }} />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="flex flex-col gap-1.5 flex-1">
+                {kanbanData.map(k => (
+                  <div key={k.name} className="flex items-center gap-2">
+                    <span className="h-2.5 w-2.5 rounded-full" style={{ background: KANBAN_COLORS[k.name] ?? '#6b7280' }} />
+                    <span className="text-[10px] text-gray-400 capitalize flex-1">{k.name}</span>
+                    <span className="text-[10px] font-bold text-gray-300">{kanbanTotal > 0 ? Math.round((k.value / kanbanTotal) * 100) : 0}%</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Top Products */}
+          <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }} className="rounded-2xl p-5">
+            <h3 className="text-sm font-semibold text-white mb-1">Top Productos</h3>
+            <p className="text-[10px] text-gray-600 mb-4">Productos más vendidos</p>
+            <div className="h-40">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={topProducts} layout="vertical">
+                  <XAxis type="number" tick={{ fill: '#6b7280', fontSize: 10 }} tickLine={false} axisLine={false} />
+                  <YAxis type="category" dataKey="name" tick={{ fill: '#d1d5db', fontSize: 10 }} tickLine={false} axisLine={false} width={120} />
+                  <Tooltip contentStyle={{ background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, fontSize: 12 }} />
+                  <Bar dataKey="count" fill="#7c3aed" radius={[0, 4, 4, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        </div>
+
+        {/* Bottom stats */}
+        <div className="grid grid-cols-3 gap-4">
+          {[
+            { label: 'Campañas', value: campaigns.length, icon: '📣' },
+            { label: 'Ejecuciones Totales', value: overview?.total_executions ?? 0, icon: '⚡' },
+            { label: 'Actividad', value: contactsEvo.length > 0 ? `${contactsEvo[contactsEvo.length - 1]?.count ?? 0} hoy` : '–', icon: '📊' },
+          ].map(s => (
+            <div key={s.label} style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}
+              className="rounded-2xl p-5">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-lg">{s.icon}</span>
+                <span className="text-xs text-gray-500">{s.label}</span>
+              </div>
+              <p className="text-2xl font-extrabold text-white">{s.value}</p>
+            </div>
+          ))}
+        </div>
+
+        {/* Campaigns table (from original) */}
+        <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }} className="rounded-2xl overflow-hidden">
           <div className="flex items-center justify-between px-6 py-4">
             <h2 className="text-sm font-semibold text-white">Campañas Meta Ads</h2>
             {campaigns.length > 0 && (
@@ -178,18 +252,8 @@ export default function DashboardPage() {
               </span>
             )}
           </div>
-
-          {loading ? (
-            <div className="flex items-center justify-center py-16 text-sm text-gray-600">Cargando...</div>
-          ) : campaigns.length === 0 ? (
-            <div className="flex flex-col items-center gap-3 py-16">
-              <div style={{ background: 'rgba(255,255,255,0.03)' }} className="flex h-14 w-14 items-center justify-center rounded-2xl">
-                <svg className="h-7 w-7 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z" />
-                </svg>
-              </div>
-              <p className="text-sm text-gray-600">Sin campañas registradas aún</p>
-            </div>
+          {campaigns.length === 0 ? (
+            <div className="flex items-center justify-center py-12 text-sm text-gray-600">Sin campañas registradas</div>
           ) : (
             <table className="w-full text-sm">
               <thead>
@@ -198,7 +262,7 @@ export default function DashboardPage() {
                   <th className="px-6 py-3">Campaña</th>
                   <th className="px-6 py-3">Meta Ad ID</th>
                   <th className="px-6 py-3 text-right">Ventas</th>
-                  <th className="px-6 py-3 text-right">Total generado</th>
+                  <th className="px-6 py-3 text-right">Total</th>
                 </tr>
               </thead>
               <tbody>
@@ -211,17 +275,6 @@ export default function DashboardPage() {
                   </tr>
                 ))}
               </tbody>
-              <tfoot>
-                <tr style={{ borderTop: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.02)' }}>
-                  <td colSpan={2} className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-widest">Total</td>
-                  <td className="px-6 py-3 text-right font-bold text-gray-300">
-                    {campaigns.reduce((s, c) => s + c.sales_count, 0)}
-                  </td>
-                  <td className="px-6 py-3 text-right font-extrabold text-emerald-400">
-                    ${campaigns.reduce((s, c) => s + c.total_revenue, 0).toFixed(2)}
-                  </td>
-                </tr>
-              </tfoot>
             </table>
           )}
         </div>
