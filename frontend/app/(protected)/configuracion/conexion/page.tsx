@@ -132,6 +132,39 @@ export default function ConexionPage() {
     }
   }
 
+  // ─── registrar en meta api ──────────────────────────────────────────────────
+  const [registering, setRegistering] = useState(false)
+  async function handleRegisterMeta() {
+    if (!form.phone_number_id || !form.meta_token) {
+      setError('Necesitas guardar el Phone Number ID y el Meta Token primero')
+      return
+    }
+    setRegistering(true)
+    setError('')
+    try {
+      const pin = prompt('Ingresa un PIN de 6 dígitos para proteger tu número en Meta (ej: 123456):', '123456')
+      if (!pin || pin.length !== 6) throw new Error('El PIN debe tener 6 dígitos')
+
+      const res = await fetch(`https://graph.facebook.com/v20.0/${form.phone_number_id}/register`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${form.meta_token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ messaging_product: 'whatsapp', pin })
+      })
+
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error?.message || 'Error al registrar en Meta')
+      
+      alert('¡Número registrado exitosamente en la API de Meta! Ya debería estar "Conectado".')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error al registrar')
+    } finally {
+      setRegistering(false)
+    }
+  }
+
   if (loading) return <PageLoading />
 
   return (
@@ -157,11 +190,18 @@ export default function ConexionPage() {
           </p>
         </div>
         {isConnected && (
-          <button onClick={handleDisconnect}
-            style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)' }}
-            className="shrink-0 rounded-lg px-3 py-1.5 text-xs font-semibold text-red-400 hover:bg-red-500/20 transition-colors">
-            Desconectar
-          </button>
+          <div className="flex items-center gap-2">
+            <button onClick={handleRegisterMeta} disabled={registering}
+              style={{ background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.25)' }}
+              className="shrink-0 rounded-lg px-3 py-1.5 text-xs font-semibold text-blue-400 hover:bg-blue-500/20 transition-colors disabled:opacity-50">
+              {registering ? '...' : 'Registrar en Meta API'}
+            </button>
+            <button onClick={handleDisconnect}
+              style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)' }}
+              className="shrink-0 rounded-lg px-3 py-1.5 text-xs font-semibold text-red-400 hover:bg-red-500/20 transition-colors">
+              Desconectar
+            </button>
+          </div>
         )}
       </div>
 
@@ -223,7 +263,7 @@ export default function ConexionPage() {
           <div>
             <p className="text-[10px] text-gray-600 mb-0.5">Webhook URL para Meta:</p>
             <code className="text-[11px] text-violet-400 break-all">
-              {process.env.NEXT_PUBLIC_APP_URL ?? process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'}/api/whatsapp/webhook
+              {process.env.NEXT_PUBLIC_APP_URL ?? process.env.NEXT_PUBLIC_API_URL ?? 'https://nexbot.pro'}/api/whatsapp/webhook
             </code>
           </div>
           <button onClick={handleSave} disabled={saving}
