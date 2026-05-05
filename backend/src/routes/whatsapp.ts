@@ -25,6 +25,7 @@ router.get('/webhook', (req, res) => {
 
 // ─── Mensajes entrantes ───────────────────────────────────────────────────────
 router.post('/webhook', async (req, res) => {
+  console.log('[webhook] REQ RECEIVED:', JSON.stringify(req.body, null, 2))
   // Meta exige 200 inmediato o reintenta
   res.sendStatus(200)
 
@@ -46,7 +47,7 @@ router.post('/webhook', async (req, res) => {
       .select('id')
       .eq('phone_number_id', phoneNumberId)
       .eq('active', true)
-      .single()
+      .maybeSingle()
     tenantId = data?.id
   }
 
@@ -54,8 +55,20 @@ router.post('/webhook', async (req, res) => {
     tenantId = process.env.TENANT_ID
   }
 
+  // FALLBACK DE EMERGENCIA: Si no encontró por ID ni hay ENV, agarrar el único tenant activo
   if (!tenantId) {
-    console.error(`[webhook] No tenant found for phone_number_id="${phoneNumberId}" and TENANT_ID not set`)
+    console.warn(`[webhook] No tenant found for phone_number_id="${phoneNumberId}". Using fallback...`)
+    const { data } = await supabase
+      .from('tenants')
+      .select('id')
+      .eq('active', true)
+      .limit(1)
+      .single()
+    tenantId = data?.id
+  }
+
+  if (!tenantId) {
+    console.error(`[webhook] CRITICAL: No active tenant found in database!`)
     return
   }
 
