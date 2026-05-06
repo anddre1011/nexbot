@@ -20,17 +20,21 @@ router.get('/', async (_req, res) => {
 
   const { data, error } = await supabase
     .from('products')
-    .select(`
-      id, folder, name, type, price, description, delivery_url, active, created_at,
-      upsell:upsell_id(id, name),
-      downsell:downsell_id(id, name)
-    `)
+    .select('id, folder, name, type, price, currency, banner_url, description, delivery_url, active, created_at, upsell_id, downsell_id')
     .eq('tenant_id', tenantId)
     .order('folder')
     .order('created_at', { ascending: false })
 
   if (error) { res.status(500).json({ error: error.message }); return }
-  res.json(data)
+
+  // Resolver nombres de upsell/downsell manualmente
+  const products = (data ?? []).map((p: any) => ({
+    ...p,
+    upsell:   p.upsell_id   ? data?.find((x: any) => x.id === p.upsell_id)   ? { id: p.upsell_id,   name: data.find((x: any) => x.id === p.upsell_id)?.name }   : null : null,
+    downsell: p.downsell_id ? data?.find((x: any) => x.id === p.downsell_id) ? { id: p.downsell_id, name: data.find((x: any) => x.id === p.downsell_id)?.name } : null : null,
+  }))
+
+  res.json(products)
 })
 
 // ─── POST /api/products ───────────────────────────────────────────────────────
@@ -38,7 +42,7 @@ router.post('/', async (req, res) => {
   const tenantId = await getTenantId(res.locals.user.id)
   if (!tenantId) { res.status(404).json({ error: 'Tenant not found' }); return }
 
-  const { name, type, price, description, delivery_url, folder, upsell_id, downsell_id } = req.body
+  const { name, type, price, currency, banner_url, description, delivery_url, folder, upsell_id, downsell_id } = req.body
 
   if (!name?.trim())          { res.status(400).json({ error: 'name is required' }); return }
   if (price == null)          { res.status(400).json({ error: 'price is required' }); return }
@@ -51,13 +55,15 @@ router.post('/', async (req, res) => {
       name:         name.trim(),
       type,
       price:        Number(price),
+      currency:     currency ?? 'BOB',
+      banner_url:   banner_url?.trim() ?? null,
       description:  description?.trim() ?? null,
       delivery_url: delivery_url?.trim() ?? null,
       folder:       folder?.trim() || 'General',
       upsell_id:    upsell_id   ?? null,
       downsell_id:  downsell_id ?? null,
     })
-    .select('id, folder, name, type, price, description, delivery_url, active, created_at')
+    .select('id, folder, name, type, price, currency, banner_url, description, delivery_url, active, created_at')
     .single()
 
   if (error) { res.status(500).json({ error: error.message }); return }
@@ -66,7 +72,7 @@ router.post('/', async (req, res) => {
 
 // ─── PATCH /api/products/:id ──────────────────────────────────────────────────
 router.patch('/:id', async (req, res) => {
-  const allowed = ['name', 'type', 'price', 'description', 'delivery_url', 'folder', 'upsell_id', 'downsell_id', 'active'] as const
+  const allowed = ['name', 'type', 'price', 'currency', 'banner_url', 'description', 'delivery_url', 'folder', 'upsell_id', 'downsell_id', 'active'] as const
   const updates: Record<string, unknown> = {}
   for (const key of allowed) {
     if (req.body[key] !== undefined) updates[key] = req.body[key]
@@ -78,7 +84,7 @@ router.patch('/:id', async (req, res) => {
     .from('products')
     .update(updates)
     .eq('id', req.params.id)
-    .select('id, folder, name, type, price, description, delivery_url, active, upsell_id, downsell_id')
+    .select('id, folder, name, type, price, currency, banner_url, description, delivery_url, active, upsell_id, downsell_id')
     .single()
 
   if (error) { res.status(500).json({ error: error.message }); return }
