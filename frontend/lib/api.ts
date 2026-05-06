@@ -8,14 +8,28 @@ async function getToken(): Promise<string | null> {
   return data.session?.access_token ?? null
 }
 
-export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+interface ApiFetchInit extends RequestInit {
+  rawBody?: boolean
+}
+
+export async function apiFetch<T>(path: string, init?: ApiFetchInit): Promise<T> {
   const token = await getToken()
+  const headers: Record<string, string> = {
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  }
+
+  // Solo agregar Content-Type json si NO es rawBody (FormData maneja su propio Content-Type)
+  if (!init?.rawBody) {
+    headers['Content-Type'] = 'application/json'
+  }
+
+  const { rawBody, ...fetchInit } = init ?? {} as ApiFetchInit
+
   const res = await fetch(`${BASE}${path}`, {
-    ...init,
+    ...fetchInit,
     headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...init?.headers,
+      ...headers,
+      ...fetchInit?.headers as Record<string, string>,
     },
   })
 

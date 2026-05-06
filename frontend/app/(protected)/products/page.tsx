@@ -1,7 +1,9 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { apiFetch } from '@/lib/api'
+
+const MAX_FILE_SIZE = 2 * 1024 * 1024 // 2MB
 
 // ─── tipos ────────────────────────────────────────────────────────────────────
 interface Product {
@@ -311,6 +313,46 @@ function ProductModal({
   const [error,       setError]       = useState('')
   const [loading,     setLoading]     = useState(false)
 
+  // ── imagen uploader state ──
+  const [uploading,   setUploading]   = useState(false)
+  const [dragOver,    setDragOver]    = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  async function handleImageUpload(file: File) {
+    if (file.size > MAX_FILE_SIZE) {
+      setError('La imagen debe pesar menos de 2MB')
+      return
+    }
+    if (!file.type.startsWith('image/')) {
+      setError('Solo se permiten archivos de imagen')
+      return
+    }
+    setUploading(true); setError('')
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      const res = await apiFetch<{ url: string }>('/api/upload/product-banner', {
+        method: 'POST',
+        body: formData,
+        rawBody: true,
+      })
+      setBannerUrl(res.url)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error al subir imagen')
+    } finally { setUploading(false) }
+  }
+
+  function onFileDrop(e: React.DragEvent) {
+    e.preventDefault(); setDragOver(false)
+    const file = e.dataTransfer.files[0]
+    if (file) handleImageUpload(file)
+  }
+
+  function onFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (file) handleImageUpload(file)
+  }
+
   const CURRENCIES = [
     { code: 'BOB', label: 'BOB - Boliviano', flag: '🇧🇴' },
     { code: 'BRL', label: 'BRL - Real Brasileño', flag: '🇧🇷' },
@@ -405,12 +447,66 @@ function ProductModal({
                 className="modal-input" />
             </MField>
 
-            {/* banner */}
+            {/* banner – uploader */}
             <div className="col-span-2">
-              <MField label="Banner (URL imagen 1920x1080)">
-                <input value={bannerUrl} onChange={(e) => setBannerUrl(e.target.value)}
-                  placeholder="https://supabase.co/storage/v1/..." className="modal-input" />
-              </MField>
+              <label className="mb-1.5 block text-xs font-medium text-gray-400">
+                Banner del producto <span className="text-gray-600">(máx 2MB)</span>
+              </label>
+
+              {bannerUrl ? (
+                /* ── Preview ── */
+                <div className="relative group rounded-xl overflow-hidden border border-white/10 bg-black/40">
+                  <img src={bannerUrl} alt="Banner" className="w-full h-36 object-cover" />
+                  <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-3">
+                    <button type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="rounded-lg bg-white/10 px-3 py-1.5 text-xs font-medium text-white backdrop-blur hover:bg-white/20">
+                      Cambiar
+                    </button>
+                    <button type="button"
+                      onClick={() => setBannerUrl('')}
+                      className="rounded-lg bg-red-500/20 px-3 py-1.5 text-xs font-medium text-red-300 backdrop-blur hover:bg-red-500/30">
+                      Eliminar
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                /* ── Drop zone ── */
+                <div
+                  onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
+                  onDragLeave={() => setDragOver(false)}
+                  onDrop={onFileDrop}
+                  onClick={() => fileInputRef.current?.click()}
+                  className={`flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed py-8 transition-all
+                    ${dragOver
+                      ? 'border-indigo-500 bg-indigo-500/10'
+                      : 'border-white/10 bg-white/[0.02] hover:border-white/20 hover:bg-white/[0.04]'
+                    } ${uploading ? 'pointer-events-none opacity-60' : ''}`}
+                >
+                  {uploading ? (
+                    <>
+                      <div className="h-8 w-8 animate-spin rounded-full border-2 border-indigo-500 border-t-transparent" />
+                      <span className="text-xs text-gray-400">Subiendo imagen...</span>
+                    </>
+                  ) : (
+                    <>
+                      <svg className="h-8 w-8 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0022.5 18.75V5.25A2.25 2.25 0 0020.25 3H3.75A2.25 2.25 0 001.5 5.25v13.5A2.25 2.25 0 003.75 21z" />
+                      </svg>
+                      <span className="text-xs text-gray-400">Arrastra una imagen o <span className="font-medium text-indigo-400">selecciona del dispositivo</span></span>
+                      <span className="text-[10px] text-gray-600">PNG, JPG, WebP • máximo 2MB</span>
+                    </>
+                  )}
+                </div>
+              )}
+
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                className="hidden"
+                onChange={onFileSelect}
+              />
             </div>
 
             {/* carpeta */}
