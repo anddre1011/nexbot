@@ -293,22 +293,31 @@ function FlowPanel({ flow, medias, onClose, onSaved }: {
     if (!form.name.trim()) { setError('El nombre es obligatorio'); return }
     setSaving(true); setError('')
     const body = {
-      name:                form.name.trim(),
-      type:                form.type,
-      model:               form.model,
-      system_prompt:       form.system_prompt || null,
-      handoff_agent_name:  form.handoff_agent_name || null,
-      welcome_items:       form.welcome_items,
-      inactivity_messages: form.inactivity_messages,
-      conversion_enabled:  form.conversion_enabled,
-      conversion_message:  form.conversion_message || null,
+      name:               form.name.trim(),
+      type:               form.type,
+      model:              form.model,
+      system_prompt:      form.system_prompt || null,
+      handoff_agent_name: form.handoff_agent_name || null,
+      welcome_items:      [],
+      inactivity_messages: [],
+      conversion_enabled: conversions.length > 0,
+      conversion_message: null,
     }
     try {
+      let flowId: string
       if (isEdit) {
         await apiFetch(`/api/flows/${flow.id}`, { method: 'PATCH', body: JSON.stringify(body) })
+        flowId = flow.id
       } else {
-        await apiFetch('/api/flows', { method: 'POST', body: JSON.stringify(body) })
+        const created = await apiFetch<{ id: string }>('/api/flows', { method: 'POST', body: JSON.stringify(body) })
+        flowId = created.id
       }
+      // Guardar steps, conversions y reglas de inactividad en paralelo
+      await Promise.all([
+        apiFetch(`/api/flows/${flowId}/steps`,            { method: 'PUT', body: JSON.stringify(flowSteps) }),
+        apiFetch(`/api/flows/${flowId}/conversions`,       { method: 'PUT', body: JSON.stringify(conversions) }),
+        apiFetch(`/api/flows/${flowId}/inactivity-rules`, { method: 'PUT', body: JSON.stringify(inactRules) }),
+      ])
       onSaved()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al guardar')
@@ -438,7 +447,6 @@ function FlowPanel({ flow, medias, onClose, onSaved }: {
             <div style={{ background: 'rgba(124,58,237,0.04)', border: '1px solid rgba(124,58,237,0.12)' }}
               className="rounded-xl p-4">
               <FlowStepsBuilder
-                flowId={flow?.id ?? null}
                 steps={flowSteps}
                 onChange={setFlowSteps}
               />

@@ -147,12 +147,13 @@ async function processMessage(params: {
     await executeWelcomeFlow(activeFlow.id, from, conversation.id, tenantId)
 
     // Incrementar ejecuciones del flujo
-    await supabase.rpc('increment_flow_executions', { p_flow_id: activeFlow.id }).catch(() => {
-      // Si la RPC no existe, hacer update manual
-      supabase.from('flows')
+    try {
+      await supabase.rpc('increment_flow_executions', { p_flow_id: activeFlow.id })
+    } catch {
+      await supabase.from('flows')
         .update({ executions: (activeFlow as any).executions + 1 })
         .eq('id', activeFlow.id)
-    })
+    }
 
     return // No procesar con IA en el primer mensaje, el flujo ya respondió
   }
