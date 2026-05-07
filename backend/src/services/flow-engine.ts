@@ -211,15 +211,17 @@ export async function resolveMediaVars(text: string, tenantId: string): Promise<
     const varName = match[1]
     const fullVar = `{{media:${varName}}}`
 
-    const { data } = await supabase
+    const { data: mediaRows2 } = await supabase
       .from('media')
       .select('url, type')
       .eq('tenant_id', tenantId)
       .eq('variable', fullVar)
-      .single()
+      .order('created_at', { ascending: false })
+      .limit(1)
 
-    if (data?.url) {
-      resolved = resolved.replace(fullVar, data.url)
+    const mediaItem2 = Array.isArray(mediaRows2) ? mediaRows2[0] : mediaRows2
+    if (mediaItem2?.url) {
+      resolved = resolved.replace(fullVar, mediaItem2.url)
     }
   }
 
@@ -268,15 +270,17 @@ export async function resolveMediaTags(
     const varName = match[1]
     const fullVar = `{{media:${varName}}}`
 
-    const { data } = await supabase
+    const { data: mediaRows } = await supabase
       .from('media')
       .select('url, type')
       .eq('tenant_id', tenantId)
       .eq('variable', fullVar)
-      .single()
+      .order('created_at', { ascending: false })
+      .limit(1)
 
-    if (data?.url) {
-      parts.push({ type: data.type as 'image' | 'video' | 'audio', content: data.url })
+    const mediaItem = Array.isArray(mediaRows) ? mediaRows[0] : mediaRows
+    if (mediaItem?.url) {
+      parts.push({ type: mediaItem.type as 'image' | 'video' | 'audio', content: mediaItem.url })
     }
 
     lastIndex = (match.index ?? 0) + match[0].length
