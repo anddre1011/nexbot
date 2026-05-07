@@ -252,6 +252,7 @@ function FlowPanel({ flow, medias, onClose, onSaved }: {
   const [promptExpanded,    setPromptExpanded]    = useState(false)
   const [uploadingMedia,    setUploadingMedia]    = useState(false)
   const [pendingMedia,      setPendingMedia]      = useState<{url: string; varName: string} | null>(null)
+  const [uploadKey,         setUploadKey]         = useState(0)
   const mediaUploadRef = useRef<HTMLInputElement>(null)
 
   // ─── Estado de pasos, conversiones e inactividad ───────────────────────────
@@ -480,7 +481,7 @@ function FlowPanel({ flow, medias, onClose, onSaved }: {
                         style={{ background: uploadingMedia ? 'rgba(124,58,237,0.08)' : 'rgba(124,58,237,0.15)', border: '1px dashed rgba(124,58,237,0.35)', cursor: uploadingMedia ? 'not-allowed' : 'pointer' }}
                         className="flex w-full items-center gap-2 rounded-lg px-2 py-2 mb-2 text-xs font-semibold text-violet-300 hover:bg-violet-500/25 transition-colors">
                         {uploadingMedia ? '⏳ Subiendo...' : '📤 Subir imagen / video / audio'}
-                        <input type="file" accept="image/*,video/*,audio/*" className="hidden"
+                        <input key={uploadKey} type="file" accept="image/*,video/*,audio/*" className="hidden"
                           disabled={uploadingMedia}
                           onChange={async e => {
                             const file = e.target.files?.[0]; if (!file) return
@@ -495,7 +496,7 @@ function FlowPanel({ flow, medias, onClose, onSaved }: {
                               const short = `${ext}_${Date.now().toString().slice(-4)}`
                               setPendingMedia({ url: data.url, varName: short })
                             } catch { alert('Error al subir. Verifica el bucket "media" en Supabase Storage.') }
-                            finally { setUploadingMedia(false); e.target.value = '' }
+                            finally { setUploadingMedia(false); setUploadKey(k => k + 1) }
                           }} />
                       </label>
                     )}
