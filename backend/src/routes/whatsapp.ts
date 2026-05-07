@@ -200,7 +200,7 @@ async function processMessage(params: {
   let replyText: string
 
   if (type === 'image') {
-    replyText = await handleImage(raw, contact.id, tenantId, conversation.id)
+    replyText = await handleImage(raw, contact.id, tenantId, conversation.id, from)
   } else {
     replyText = await handleText(
       inboundContent ?? '',
@@ -313,7 +313,8 @@ async function handleImage(
   raw: Record<string, unknown>,
   contactId: string,
   tenantId: string,
-  conversationId: string
+  conversationId: string,
+  contactPhone: string = ''
 ): Promise<string> {
   const image = raw.image as { id: string } | undefined
   if (!image?.id) return 'No pude procesar la imagen. ¿Puedes reenviarla?'
@@ -341,28 +342,59 @@ async function handleImage(
 
   const validation = await validateVoucher(dataUrl, expectedAmount)
 
-  if (validation.valid && pendingSale?.id) {
-    // Confirmar venta y propagar campaign_id desde la conversación
-    await supabase
-      .from('sales')
-      .update({ status: 'confirmed' })
-      .eq('id', pendingSale.id)
+  if (validation.valid) {
+    // Confirmar venta pendiente si existe
+    if (pendingSale?.id) {
+      await supabase.from('sales').update({ status: 'confirmed' }).eq('id', pendingSale.id)
+      await propagateCampaignToSale(pendingSale.id, conversationId)
+    }
 
-    await propagateCampaignToSale(pendingSale.id, conversationId)
+    // Buscar flujo activo para ejecutar su conversión
+    const activeFlow = await getActiveFlow(tenantId)
+    if (activeFlow) {
+      const { data: conversions } = await supabase
+        .from('flow_conversions')
+        .select('*')
+        .eq('flow_id', activeFlow.id)
+        .limit(1)
 
-    // Mover contacto a Kanban "convertido" y desactivar IA
-    await supabase
-      .from('contacts')
-      .update({ kanban_stage: 'converted' })
-      .eq('id', contactId)
+      const conversion = conversions?.[0]
+      if (conversion) {
+        // Mover a Kanban según config de la conversión
+        const kanbanStage = conversion.kanban_stage ?? 'converted'
+        await supabase.from('conversations')
+          .update({ status: kanbanStage, ai_enabled: !conversion.disable_ai })
+          .eq('id', conversationId)
 
-    await supabase
-      .from('conversations')
-      .update({ status: 'closed', ai_enabled: false })
+        // Entregar producto si está configurado
+        if (conversion.delivery_enabled && conversion.product_id) {
+          const { data: product } = await supabase
+            .from('products').select('delivery_url, name').eq('id', conversion.product_id).single()
+          if (product?.delivery_url) {
+            const deliveryMsg = `🎉 ¡Acceso habilitado! Aquí está tu enlace de descarga:\n${product.delivery_url}`
+            await sendTextMessage(contactPhone, deliveryMsg)
+            await saveOutbound(conversationId, 'text', deliveryMsg)
+          }
+        }
+
+        // Mensaje de confirmación personalizado
+        if (conversion.confirm_message?.trim()) {
+          await sendTextMessage(contactPhone, conversion.confirm_message)
+          await saveOutbound(conversationId, 'text', conversion.confirm_message)
+        }
+
+        console.log(`[webhook] Conversion triggered: ${kanbanStage} for contact ${contactId}`)
+        clearInactivityTimers(conversationId)
+        return validation.message
+      }
+    }
+
+    // Sin flujo de conversión → solo mover a convertido
+    await supabase.from('conversations')
+      .update({ status: 'converted' })
       .eq('id', conversationId)
-
     clearInactivityTimers(conversationId)
-    console.log(`[webhook] sale ${pendingSale.id} confirmed for contact ${contactId}`)
+    console.log(`[webhook] Payment validated for contact ${contactId}`)
   }
 
   return validation.message
