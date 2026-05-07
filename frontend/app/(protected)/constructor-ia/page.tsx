@@ -256,10 +256,23 @@ function FlowPanel({ flow, medias, onClose, onSaved }: {
   const [inactRules, setInactRules] = useState<any[]>([])
 
   useEffect(() => {
-    if (!flow?.id) return
-    apiFetch(`/api/flows/${flow.id}/steps`).then((d: any) => setFlowSteps(d)).catch(() => {})
-    apiFetch(`/api/flows/${flow.id}/conversions`).then((d: any) => setConversions(d)).catch(() => {})
-    apiFetch(`/api/flows/${flow.id}/inactivity-rules`).then((d: any) => setInactRules(d)).catch(() => {})
+    if (!flow?.id) {
+      setFlowSteps([]); setConversions([]); setInactRules([])
+      return
+    }
+    // Cargar datos del flujo existente para edición
+    Promise.all([
+      apiFetch<any[]>(`/api/flows/${flow.id}/steps`),
+      apiFetch<any[]>(`/api/flows/${flow.id}/conversions`),
+      apiFetch<any[]>(`/api/flows/${flow.id}/inactivity-rules`),
+    ]).then(([steps, convs, rules]) => {
+      setFlowSteps(Array.isArray(steps) ? steps : [])
+      setConversions(Array.isArray(convs) ? convs : [])
+      setInactRules(Array.isArray(rules) ? rules : [])
+    }).catch((err) => {
+      console.error('[FlowPanel] load error:', err)
+      setFlowSteps([]); setConversions([]); setInactRules([])
+    })
   }, [flow?.id])
 
   function set<K extends keyof FormState>(k: K, v: FormState[K]) {
