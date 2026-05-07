@@ -210,18 +210,24 @@ async function processMessage(params: {
     // Enviar partes multimedia por separado
     for (const part of parts) {
       if (part.type === 'text') {
-        await sendTextMessage(from, part.content)
-        await saveOutbound(conversation.id, 'text', part.content)
-      } else {
+        if (part.content.trim()) {  // nunca enviar texto vacío
+          await sendTextMessage(from, part.content)
+          await saveOutbound(conversation.id, 'text', part.content)
+        }
+      } else if (part.content.trim()) {
         await sendMediaByType(from, part.type, part.content)
         await saveOutbound(conversation.id, part.type, `[${part.type}]`)
       }
     }
   } else {
-    // Mensaje de texto simple
-    const finalText = parts[0]?.content || cleaned || replyText
-    await sendTextMessage(from, finalText)
-    await saveOutbound(conversation.id, 'text', finalText)
+    // Mensaje de texto simple — solo enviar si no está vacío
+    const finalText = (parts[0]?.content || cleaned || replyText || '').trim()
+    if (finalText) {
+      await sendTextMessage(from, finalText)
+      await saveOutbound(conversation.id, 'text', finalText)
+    } else {
+      console.warn('[webhook] Agent returned empty reply, skipping send')
+    }
   }
 
   // 7f. Si el agente detecta handoff → marcar conversación como 'human'
