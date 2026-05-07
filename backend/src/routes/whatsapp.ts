@@ -345,7 +345,7 @@ async function handleImage(
   const validation = await validateVoucher(dataUrl, expectedAmount)
 
   if (validation.valid) {
-    // Confirmar venta pendiente si existe
+    // Confirmar venta pendiente si existe, o crear nueva
     if (pendingSale?.id) {
       await supabase.from('sales').update({ status: 'confirmed' }).eq('id', pendingSale.id)
       await propagateCampaignToSale(pendingSale.id, conversationId)
@@ -355,14 +355,35 @@ async function handleImage(
     const activeFlow = await getActiveFlow(tenantId)
     if (activeFlow) {
       const { data: conversions } = await supabase
-        .from('flow_conversions')
-        .select('*')
-        .eq('flow_id', activeFlow.id)
-        .limit(1)
+        .from('flow_conversions').select('*').eq('flow_id', activeFlow.id).limit(1)
 
       const conversion = conversions?.[0]
+
+      // Obtener producto vinculado al flujo
+      let productName = 'Producto'
+      let productPrice = validation.amount ?? 0
+      if (conversion?.product_id) {
+        const { data: prod } = await supabase
+          .from('products').select('name, price').eq('id', conversion.product_id).single()
+        if (prod) { productName = prod.name; productPrice = prod.price }
+      }
+
+      // Crear registro de venta en la tabla sales
+      if (!pendingSale?.id) {
+        const { data: newSale } = await supabase.from('sales').insert({
+          tenant_id:  tenantId,
+          contact_id: contactId,
+          product:    productName,
+          amount:     productPrice,
+          status:     'confirmed',
+        }).select('id').single()
+        if (newSale?.id) {
+          await propagateCampaignToSale(newSale.id, conversationId)
+        }
+        console.log(`[webhook] Sale created: ${productName} Bs${productPrice} for contact ${contactId}`)
+      }
+
       if (conversion) {
-        // Mover a Kanban según config de la conversión
         const kanbanStage = conversion.kanban_stage ?? 'converted'
         await supabase.from('conversations')
           .update({ status: kanbanStage, ai_enabled: !conversion.disable_ai })
@@ -373,28 +394,31 @@ async function handleImage(
           const { data: product } = await supabase
             .from('products').select('delivery_url, name').eq('id', conversion.product_id).single()
           if (product?.delivery_url) {
-            const deliveryMsg = `🎉 ¡Acceso habilitado! Aquí está tu enlace de descarga:\n${product.delivery_url}`
+            const deliveryMsg = `🎉 ¡Acceso habilitado! Aquí está tu enlace:\n${product.delivery_url}`
             await sendTextMessage(contactPhone, deliveryMsg)
             await saveOutbound(conversationId, 'text', deliveryMsg)
           }
         }
 
-        // Mensaje de confirmación personalizado
         if (conversion.confirm_message?.trim()) {
           await sendTextMessage(contactPhone, conversion.confirm_message)
           await saveOutbound(conversationId, 'text', conversion.confirm_message)
         }
 
-        console.log(`[webhook] Conversion triggered: ${kanbanStage} for contact ${contactId}`)
+        console.log(`[webhook] Conversion triggered: ${kanbanStage}`)
         clearInactivityTimers(conversationId)
         return validation.message
       }
     }
 
-    // Sin flujo de conversión → solo mover a convertido
-    await supabase.from('conversations')
-      .update({ status: 'converted' })
-      .eq('id', conversationId)
+    // Sin flujo → crear venta genérica y mover a convertido
+    if (!pendingSale?.id) {
+      await supabase.from('sales').insert({
+        tenant_id: tenantId, contact_id: contactId,
+        product: 'Venta', amount: validation.amount ?? 0, status: 'confirmed',
+      })
+    }
+    await supabase.from('conversations').update({ status: 'converted' }).eq('id', conversationId)
     clearInactivityTimers(conversationId)
     console.log(`[webhook] Payment validated for contact ${contactId}`)
   }

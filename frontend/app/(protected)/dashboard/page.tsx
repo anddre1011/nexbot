@@ -241,6 +241,21 @@ export default function DashboardPage() {
           ))}
         </div>
 
+        {/* Ventas Recientes */}
+        <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }} className="rounded-2xl overflow-hidden">
+          <div className="px-6 py-4 flex items-center justify-between">
+            <div>
+              <h2 className="text-sm font-semibold text-white">Ventas Recientes</h2>
+              <p className="text-[10px] text-gray-600 mt-0.5">Pagos verificados automáticamente</p>
+            </div>
+            <span style={{ background: 'rgba(16,185,129,0.12)', border: '1px solid rgba(16,185,129,0.25)' }}
+              className="rounded-full px-2.5 py-0.5 text-[10px] font-semibold text-emerald-400">
+              {overview?.sales_count ?? 0} total
+            </span>
+          </div>
+          <SalesWidget />
+        </div>
+
         {/* Campaigns table (from original) */}
         <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }} className="rounded-2xl overflow-hidden">
           <div className="flex items-center justify-between px-6 py-4">
@@ -280,5 +295,51 @@ export default function DashboardPage() {
         </div>
       </div>
     </>
+  )
+}
+
+// ─── Ventas recientes ─────────────────────────────────────────────────────────
+function SalesWidget() {
+  const [sales, setSales] = useState<{id:string;product:string;amount:number;created_at:string;contacts?:{phone:string;name:string|null}|null}[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    import('@/lib/api').then(({ apiFetch }) => {
+      apiFetch<typeof sales>('/api/sales')
+        .then(d => setSales((d ?? []).slice(0, 8)))
+        .catch(() => {})
+        .finally(() => setLoading(false))
+    })
+  }, [])
+
+  if (loading) return <div className="px-6 py-8 text-center text-xs text-gray-600">Cargando...</div>
+  if (!sales.length) return <div className="px-6 py-8 text-center text-xs text-gray-600">Sin ventas aún — los pagos verificados aparecerán aquí</div>
+
+  return (
+    <table className="w-full text-sm">
+      <thead>
+        <tr style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}
+          className="text-left text-[10px] font-bold uppercase tracking-widest text-gray-600">
+          <th className="px-6 py-3">Contacto</th>
+          <th className="px-6 py-3">Producto</th>
+          <th className="px-6 py-3">Fecha</th>
+          <th className="px-6 py-3 text-right">Monto</th>
+        </tr>
+      </thead>
+      <tbody>
+        {sales.map((s, i) => (
+          <tr key={s.id} style={{ borderTop: '1px solid rgba(255,255,255,0.04)', background: i%2===0 ? 'transparent' : 'rgba(255,255,255,0.01)' }}>
+            <td className="px-6 py-3 text-xs text-gray-400 font-mono">
+              {s.contacts?.name ?? s.contacts?.phone ?? '–'}
+            </td>
+            <td className="px-6 py-3 font-medium text-gray-200">{s.product}</td>
+            <td className="px-6 py-3 text-xs text-gray-500">
+              {new Date(s.created_at).toLocaleDateString('es', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' })}
+            </td>
+            <td className="px-6 py-3 text-right font-bold text-emerald-400">BOB {Number(s.amount).toFixed(2)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   )
 }
