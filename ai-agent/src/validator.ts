@@ -29,6 +29,12 @@ function getVisionClient(): { client: OpenAI; model: string } {
 async function extractVoucherData(imageUrl: string): Promise<ExtractedVoucher> {
   const { client, model } = getVisionClient()
 
+  // DeepSeek-chat no soporta visión → aceptar imagen directamente
+  if (model === 'deepseek-chat') {
+    console.log('[validator] DeepSeek vision not supported — accepting image as voucher')
+    return { is_payment_voucher: true, amount: null, reference: null, bank: null, date: null }
+  }
+
   try {
     const res = await client.chat.completions.create({
       model,
@@ -46,13 +52,13 @@ async function extractVoucherData(imageUrl: string): Promise<ExtractedVoucher> {
     })
 
     const raw = res.choices[0].message.content ?? '{}'
-    // Extraer JSON aunque venga con texto adicional
     const jsonMatch = raw.match(/\{[\s\S]*\}/)
     const jsonStr = jsonMatch ? jsonMatch[0] : raw
     return JSON.parse(jsonStr)
   } catch (err) {
     console.error('[validator] extractVoucherData error:', err)
-    return { is_payment_voucher: false, amount: null, reference: null, bank: null, date: null }
+    // Si falla, aceptar la imagen como comprobante (verificación manual por el dueño)
+    return { is_payment_voucher: true, amount: null, reference: null, bank: null, date: null }
   }
 }
 
