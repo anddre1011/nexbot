@@ -125,8 +125,35 @@ async function processMessage(params: {
     .update({ last_message_at: new Date().toISOString() })
     .eq('id', contact.id)
 
-  // 6b. Buscar flujo activo
-  const activeFlow = await getActiveFlow(tenantId)
+  // 6b. Detectar palabra clave y asignar flujo correspondiente
+  type FlowInfo = { id: string; name: string; type: string; model: string; system_prompt: string | null }
+  let keywordFlow: FlowInfo | null = null
+  if (type === 'text' && inboundContent) {
+    const msgLower = inboundContent.toLowerCase().trim()
+    const { data: keywords } = await supabase
+      .from('keywords')
+      .select('keyword, flow_id, flows(id, name, type, model, system_prompt)')
+      .eq('tenant_id', tenantId)
+      .eq('active', true)
+
+    if (keywords?.length) {
+      const matched = keywords.find(k =>
+        msgLower.includes(k.keyword.toLowerCase()) ||
+        msgLower === k.keyword.toLowerCase()
+      )
+      if (matched?.flow_id && matched.flows) {
+        keywordFlow = matched.flows as unknown as typeof activeFlow
+        // Vincular flujo a la conversación
+        await supabase.from('conversations')
+          .update({ flow_id: matched.flow_id })
+          .eq('id', conversation.id)
+        console.log(`[webhook] Keyword "${matched.keyword}" → flow "${(matched.flows as any)?.name}"`)
+      }
+    }
+  }
+
+  // 6b2. Buscar flujo activo (keyword tiene prioridad)
+  const activeFlow: FlowInfo | null = keywordFlow ?? await getActiveFlow(tenantId)
 
   // 6c. Reiniciar temporizadores de inactividad (con reglas del flujo)
   resetInactivityTimers(conversation.id, from, activeFlow?.id, tenantId)
