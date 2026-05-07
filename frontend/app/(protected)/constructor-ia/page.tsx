@@ -458,16 +458,16 @@ function FlowPanel({ flow, medias, onClose, onSaved }: {
                         <div className="flex gap-1.5">
                           <button onClick={async () => {
                             const v = `{{media:${pendingMedia.varName}}}`
-                            insertAtCursor(v)
+                            // Añadir al final del prompt (evita problema de cursor fuera de foco)
+                            set('system_prompt', (form.system_prompt ?? '') + '\n' + v)
                             // Guardar en tabla media para que aparezca en Biblioteca
                             apiFetch('/api/media', { method: 'POST', body: JSON.stringify({ name: pendingMedia.varName, type: 'image', url: pendingMedia.url, variable: v }) }).catch(() => {})
-                            // Guardado en tabla media — el dropdown mostrará el nuevo item en la próxima apertura
                             setPendingMedia(null)
                             setShowMediaPicker(false)
                           }}
                           style={{ background: 'linear-gradient(135deg,#7c3aed,#2563eb)' }}
-                          className="flex-1 rounded-lg py-1.5 text-[10px] font-bold text-white">
-                            Insertar en prompt
+                          className="flex-1 rounded-lg py-1.5 text-[10px] font-bold text-white hover:opacity-90 transition-all">
+                            ↓ Añadir al prompt
                           </button>
                           <button onClick={() => setPendingMedia(null)}
                             className="rounded-lg px-2 py-1.5 text-[10px] text-gray-500 hover:text-red-400 transition-colors">
