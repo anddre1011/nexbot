@@ -142,12 +142,17 @@ async function processMessage(params: {
         msgLower === k.keyword.toLowerCase()
       )
       if (matched?.flow_id && matched.flows) {
-        keywordFlow = matched.flows as unknown as typeof activeFlow
+        keywordFlow = matched.flows as unknown as FlowInfo
         // Vincular flujo a la conversación
         await supabase.from('conversations')
           .update({ flow_id: matched.flow_id })
           .eq('id', conversation.id)
         console.log(`[webhook] Keyword "${matched.keyword}" → flow "${(matched.flows as any)?.name}"`)
+
+        // Ejecutar flujo de bienvenida del keyword inmediatamente
+        console.log(`[webhook] Executing keyword flow steps for "${(matched.flows as any)?.name}"`)
+        await executeWelcomeFlow(matched.flow_id, from, conversation.id, tenantId)
+        return  // El flujo inicial ya respondió — el AI responderá en el próximo mensaje
       }
     }
   }
