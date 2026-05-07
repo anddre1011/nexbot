@@ -129,7 +129,10 @@ async function processMessage(params: {
   type FlowInfo = { id: string; name: string; type: string; model: string; system_prompt: string | null }
   let keywordFlow: FlowInfo | null = null
   if (type === 'text' && inboundContent) {
-    const msgLower = inboundContent.toLowerCase().trim()
+    // Normalizar acentos: "máster" === "master", "información" === "informacion"
+    const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim()
+    const msgNorm = norm(inboundContent)
+
     const { data: keywords } = await supabase
       .from('keywords')
       .select('keyword, flow_id, flows(id, name, type, model, system_prompt)')
@@ -138,8 +141,7 @@ async function processMessage(params: {
 
     if (keywords?.length) {
       const matched = keywords.find(k =>
-        msgLower.includes(k.keyword.toLowerCase()) ||
-        msgLower === k.keyword.toLowerCase()
+        msgNorm.includes(norm(k.keyword)) || msgNorm === norm(k.keyword)
       )
       if (matched?.flow_id && matched.flows) {
         keywordFlow = matched.flows as unknown as FlowInfo
