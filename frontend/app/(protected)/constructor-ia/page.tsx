@@ -462,6 +462,7 @@ function FlowPanel({ flow, medias, onClose, onSaved }: {
               <FlowStepsBuilder
                 steps={flowSteps}
                 onChange={setFlowSteps}
+                onInsertVar={(v) => insertAtCursor(v)}
               />
             </div>
           )}

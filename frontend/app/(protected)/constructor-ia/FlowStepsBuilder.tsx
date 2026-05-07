@@ -8,6 +8,7 @@ export interface FlowStep {
   type: 'text' | 'image' | 'video' | 'audio' | 'file' | 'delay' | 'wait_response'
   content: string | null
   media_url: string | null
+  variable_name: string | null   // {{media:variable_name}}
   delay_ms: number
   buttons: unknown[]
 }
@@ -31,19 +32,29 @@ const ACCEPT: Record<string, string> = {
 
 function uid() { return Math.random().toString(36).slice(2, 8) }
 
-export default function FlowStepsBuilder({ steps, onChange }: {
-  steps: FlowStep[]
-  onChange: (s: FlowStep[]) => void
+function toVarName(filename: string, position: number): string {
+  // "FIFA World Cup 2026.jpg" → "fifa_world_cup_2026"
+  const base = filename.split('/').pop()?.replace(/\.[^.]+$/, '') ?? `media_${position}`
+  return base.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase().slice(0, 25)
+}
+
+export default function FlowStepsBuilder({
+  steps, onChange, onInsertVar,
+}: {
+  steps:        FlowStep[]
+  onChange:     (s: FlowStep[]) => void
+  onInsertVar?: (variable: string) => void
 }) {
   const [showMenu,  setShowMenu]  = useState(false)
   const [dragIdx,   setDragIdx]   = useState<number | null>(null)
   const [uploading, setUploading] = useState<string | null>(null)
+  const [copied,    setCopied]    = useState<string | null>(null)
 
   function addStep(type: FlowStep['type']) {
     setShowMenu(false)
     onChange([...steps, {
       id: uid(), position: steps.length, type,
-      content: null, media_url: null,
+      content: null, media_url: null, variable_name: null,
       delay_ms: type === 'delay' ? 2000 : 0, buttons: [],
     }])
   }
@@ -57,20 +68,27 @@ export default function FlowStepsBuilder({ steps, onChange }: {
   }
 
   async function handleFile(idx: number, file: File) {
-    setUploading(steps[idx].id)
+    const step = steps[idx]
+    setUploading(step.id)
     try {
       const fd = new FormData()
       fd.append('file', file)
       const data = await apiFetch<{ url: string }>('/api/upload/flow-media', {
-        method: 'POST',
-        body: fd,
-        rawBody: true,
+        method: 'POST', body: fd, rawBody: true,
       } as Parameters<typeof apiFetch>[1])
-      update(idx, { media_url: data.url })
+      // Generar variable automáticamente del nombre del archivo
+      const varName = toVarName(file.name, idx)
+      update(idx, { media_url: data.url, variable_name: varName })
     } catch (err) {
       console.error('[upload]', err)
-      alert('Error al subir archivo. Verifica que el bucket "media" existe en Supabase Storage.')
+      alert('Error al subir. Verifica el bucket "media" en Supabase Storage.')
     } finally { setUploading(null) }
+  }
+
+  function copyVar(varStr: string) {
+    navigator.clipboard.writeText(varStr)
+    setCopied(varStr)
+    setTimeout(() => setCopied(null), 2000)
   }
 
   // Drag & drop reorder
@@ -89,7 +107,7 @@ export default function FlowStepsBuilder({ steps, onChange }: {
     <div>
       <div className="mb-3">
         <label className="block text-xs font-bold uppercase tracking-widest text-gray-500">Flujo inicial</label>
-        <p className="text-[10px] text-gray-600 mt-0.5">Secuencia de mensajes al primer contacto · arrastra para reordenar</p>
+        <p className="text-[10px] text-gray-600 mt-0.5">Mensajes automáticos al primer contacto · arrastra para reordenar</p>
       </div>
 
       <div className="flex flex-col gap-2 mb-2">
@@ -121,7 +139,7 @@ export default function FlowStepsBuilder({ steps, onChange }: {
               </button>
             </div>
 
-            {/* Contenido por tipo */}
+            {/* Texto */}
             {step.type === 'text' && (
               <textarea rows={2} value={step.content ?? ''}
                 onChange={e => update(idx, { content: e.target.value })}
@@ -129,6 +147,7 @@ export default function FlowStepsBuilder({ steps, onChange }: {
                 className="modal-input resize-none text-xs w-full" />
             )}
 
+            {/* Delay */}
             {step.type === 'delay' && (
               <div className="flex items-center gap-3">
                 <input type="range" min={500} max={10000} step={500}
@@ -141,31 +160,63 @@ export default function FlowStepsBuilder({ steps, onChange }: {
               </div>
             )}
 
+            {/* Esperar respuesta */}
             {step.type === 'wait_response' && (
               <p className="text-[10px] text-gray-500 italic">
                 El bot espera la respuesta del contacto antes de continuar.
               </p>
             )}
 
+            {/* Media (imagen / video / audio / archivo) */}
             {['image', 'video', 'audio', 'file'].includes(step.type) && (
               <div className="flex flex-col gap-1.5">
+
                 {step.media_url ? (
-                  /* Archivo subido */
-                  <div className="flex items-center gap-2 rounded-xl px-3 py-2.5"
-                    style={{ background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.25)' }}>
-                    <span className="text-emerald-400 text-sm">✓</span>
-                    <span className="text-xs text-emerald-300 truncate flex-1">
-                      {decodeURIComponent(step.media_url.split('/').pop() ?? '').slice(0, 45)}
-                    </span>
-                    <button onClick={() => update(idx, { media_url: null })}
-                      className="text-gray-500 hover:text-red-400 shrink-0 transition-colors">
-                      ✕
-                    </button>
+                  /* ── Archivo subido ── */
+                  <div className="flex flex-col gap-1.5">
+                    <div className="flex items-center gap-2 rounded-xl px-3 py-2"
+                      style={{ background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.25)' }}>
+                      <span className="text-emerald-400 text-sm">✓</span>
+                      <span className="text-xs text-emerald-300 truncate flex-1">
+                        {decodeURIComponent(step.media_url.split('/').pop() ?? '').slice(0, 40)}
+                      </span>
+                      <button onClick={() => update(idx, { media_url: null, variable_name: null })}
+                        className="text-gray-500 hover:text-red-400 shrink-0 transition-colors">✕</button>
+                    </div>
+
+                    {/* Variable generada automáticamente */}
+                    {step.variable_name && (
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-[10px] text-gray-500">Variable:</span>
+                        {/* Campo editable del nombre */}
+                        <input
+                          value={step.variable_name}
+                          onChange={e => update(idx, { variable_name: e.target.value.replace(/[^a-zA-Z0-9_]/g, '_').toLowerCase() })}
+                          style={{ background: 'rgba(124,58,237,0.12)', border: '1px solid rgba(124,58,237,0.3)' }}
+                          className="rounded-lg px-2 py-0.5 font-mono text-[10px] text-violet-300 outline-none w-32"
+                        />
+                        {/* Chip con la variable completa */}
+                        <button
+                          onClick={() => {
+                            const v = `{{media:${step.variable_name}}}`
+                            copyVar(v)
+                            onInsertVar?.(v)
+                          }}
+                          style={{ background: copied === `{{media:${step.variable_name}}}` ? 'rgba(16,185,129,0.15)' : 'rgba(124,58,237,0.15)', border: '1px solid rgba(124,58,237,0.3)' }}
+                          className="rounded-lg px-2 py-0.5 font-mono text-[10px] text-violet-300 hover:bg-violet-500/25 transition-colors">
+                          {copied === `{{media:${step.variable_name}}}` ? '✓ Copiado' : `{{media:${step.variable_name}}} ↑prompt`}
+                        </button>
+                      </div>
+                    )}
                   </div>
                 ) : (
-                  /* Botón de subida — usa <label> para garantizar apertura del file picker */
+                  /* ── Botón de subida ── */
                   <label
-                    style={{ background: uploading === step.id ? 'rgba(124,58,237,0.15)' : 'rgba(124,58,237,0.1)', border: '1px dashed rgba(124,58,237,0.35)', cursor: uploading === step.id ? 'not-allowed' : 'pointer' }}
+                    style={{
+                      background: uploading === step.id ? 'rgba(124,58,237,0.15)' : 'rgba(124,58,237,0.1)',
+                      border: '1px dashed rgba(124,58,237,0.35)',
+                      cursor: uploading === step.id ? 'not-allowed' : 'pointer',
+                    }}
                     className="w-full rounded-xl py-3 text-center text-xs font-semibold text-violet-400 hover:bg-violet-500/20 transition-colors block">
                     {uploading === step.id
                       ? '⏳ Subiendo...'
@@ -184,7 +235,7 @@ export default function FlowStepsBuilder({ steps, onChange }: {
                   </label>
                 )}
 
-                {/* Caption solo para imagen/video */}
+                {/* Caption para imagen/video */}
                 {(step.type === 'image' || step.type === 'video') && (
                   <input value={step.content ?? ''}
                     onChange={e => update(idx, { content: e.target.value })}
@@ -197,7 +248,7 @@ export default function FlowStepsBuilder({ steps, onChange }: {
         ))}
       </div>
 
-      {/* Botón añadir */}
+      {/* Menú añadir */}
       <div className="relative">
         <button onClick={() => setShowMenu(p => !p)}
           style={{ background: 'rgba(255,255,255,0.02)', border: '1px dashed rgba(255,255,255,0.10)' }}
