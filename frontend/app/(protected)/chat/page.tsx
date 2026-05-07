@@ -458,6 +458,22 @@ export default function ChatPage() {
                 ))}
               </div>
             </div>
+
+            <hr className="border-white/5" />
+
+            {/* Botón reiniciar conversación (para pruebas) */}
+            <button
+              onClick={async () => {
+                if (!confirm('¿Reiniciar esta conversación? Se borrarán todos los mensajes y la IA volverá a responder.')) return
+                await apiFetch(`/api/conversations/${selected.id}/reset`, { method: 'DELETE' })
+                setMessages([])
+                fetchConversations()
+              }}
+              style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)' }}
+              className="w-full rounded-xl py-2 text-xs font-medium text-amber-400 hover:bg-amber-500/15 transition-colors"
+            >
+              🔄 Reiniciar conversación
+            </button>
           </>
         )}
       </aside>

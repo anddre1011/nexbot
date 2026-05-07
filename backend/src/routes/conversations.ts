@@ -109,6 +109,19 @@ router.patch('/:id/status', async (req, res) => {
   res.json(data)
 })
 
+// ─── DELETE /api/conversations/:id/reset — reiniciar para pruebas ────────────
+router.delete('/:id/reset', async (req, res) => {
+  // 1. Borrar todos los mensajes
+  await supabase.from('messages').delete().eq('conversation_id', req.params.id)
+  // 2. Resetear conversación: bot activo, IA habilitada, sin campaña
+  const { error } = await supabase
+    .from('conversations')
+    .update({ status: 'bot', last_read_at: null })
+    .eq('id', req.params.id)
+  if (error) { res.status(500).json({ error: error.message }); return }
+  res.json({ ok: true })
+})
+
 // ─── PATCH /api/conversations/:id/read — marcar como leído ───────────────────
 router.patch('/:id/read', async (req, res) => {
   const { error } = await supabase
