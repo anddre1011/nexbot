@@ -174,7 +174,8 @@ async function processMessage(params: {
       inboundContent ?? '',
       conversation.id,
       tenantId,
-      activeFlow?.system_prompt ?? undefined
+      activeFlow?.system_prompt ?? undefined,
+      (activeFlow as any)?.model ?? 'gpt-4o'
     )
   }
 
@@ -249,9 +250,9 @@ async function handleText(
   conversationId: string,
   tenantId: string,
   flowPrompt?: string,
+  flowModel?: string,
 ): Promise<string> {
-  const history = await getHistory(conversationId)
-  const tenant  = await getTenant(tenantId)
+  const [history, tenant] = await Promise.all([getHistory(conversationId), getTenant(tenantId)])
 
   const result = await runAgent({
     contactPhone:    '',
@@ -260,7 +261,11 @@ async function handleText(
     tenantPrompt:    flowPrompt ?? DEFAULT_SYSTEM_PROMPT,
     productName:     tenant?.name,
     productPrice:    undefined,
-  })
+    // Pasar modelo y claves del tenant al agente
+    model:       flowModel ?? 'gpt-4o',
+    apiKey:      (tenant as any)?.openai_key    ?? process.env.OPENAI_API_KEY,
+    deepseekKey: (tenant as any)?.deepseek_key  ?? process.env.DEEPSEEK_API_KEY,
+  } as any)
 
   return result.reply
 }
@@ -366,7 +371,7 @@ async function getHistory(conversationId: string): Promise<ChatMessage[]> {
     .select('direction, content')
     .eq('conversation_id', conversationId)
     .order('created_at', { ascending: true })
-    .limit(10)
+    .limit(6) // 6 mensajes = 3 intercambios — suficiente contexto, menos tokens
 
   return (data ?? [])
     .filter((m) => m.content)
@@ -379,7 +384,7 @@ async function getHistory(conversationId: string): Promise<ChatMessage[]> {
 async function getTenant(tenantId: string) {
   const { data } = await supabase
     .from('tenants')
-    .select('name')
+    .select('name, openai_key, deepseek_key')
     .eq('id', tenantId)
     .single()
   return data

@@ -7,7 +7,7 @@ const router = Router()
 router.use(requireAuth)
 
 // Campos sensibles — se devuelven enmascarados al frontend
-const SENSITIVE = ['openai_key', 'meta_token', 'webhook_verify_token'] as const
+const SENSITIVE = ['openai_key', 'meta_token', 'webhook_verify_token', 'deepseek_key'] as const
 type SensitiveField = (typeof SENSITIVE)[number]
 
 function maskSensitive(tenant: Record<string, unknown>) {
@@ -26,7 +26,7 @@ router.get('/settings', async (_req, res) => {
       'id, name, whatsapp_number, phone_number_id, webhook_verify_token, ' +
       'openai_key, meta_token, system_prompt, ' +
       'product_name, product_price, payment_methods, ' +
-      'welcome_message, payment_confirmed_message, plan, active'
+      'welcome_message, payment_confirmed_message, plan, active, deepseek_key'
     )
     .eq('user_id', res.locals.user.id)
     .single()

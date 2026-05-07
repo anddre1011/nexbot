@@ -4,16 +4,24 @@ import { useEffect, useState } from 'react'
 import { apiFetch } from '@/lib/api'
 
 interface Integration { key: keyof Keys; label: string; desc: string; placeholder: string; docsUrl: string; icon: string }
-interface Keys { openai_key: string; elevenlabs_key: string }
+interface Keys { openai_key: string; deepseek_key: string; elevenlabs_key: string }
 
 const INTEGRATIONS: Integration[] = [
   {
     key:         'openai_key',
     label:       'OpenAI API Key',
-    desc:        'Alimenta el agente IA, validación de comprobantes y generación de respuestas con GPT-4o.',
+    desc:        'GPT-4o, GPT-4o-mini, GPT-4.1, GPT-3.5 Turbo. Necesario para validación de comprobantes por visión.',
     placeholder: 'sk-proj-...',
     docsUrl:     'https://platform.openai.com/api-keys',
     icon:        '🤖',
+  },
+  {
+    key:         'deepseek_key',
+    label:       'DeepSeek API Key',
+    desc:        'deepseek-chat y deepseek-reasoner — 90% más barato que GPT-4o con calidad comparable. Recomendado para ventas.',
+    placeholder: 'sk-xxxxxxxxxxxxxxxx',
+    docsUrl:     'https://platform.deepseek.com/api_keys',
+    icon:        '🔮',
   },
   {
     key:         'elevenlabs_key',
@@ -26,7 +34,7 @@ const INTEGRATIONS: Integration[] = [
 ]
 
 export default function IntegracionesPage() {
-  const [keys,    setKeys]    = useState<Keys>({ openai_key: '', elevenlabs_key: '' })
+  const [keys,    setKeys]    = useState<Keys>({ openai_key: '', deepseek_key: '', elevenlabs_key: '' })
   const [loading, setLoading] = useState(true)
   const [saving,  setSaving]  = useState<keyof Keys | null>(null)
   const [saved,   setSaved]   = useState<keyof Keys | null>(null)
@@ -34,7 +42,11 @@ export default function IntegracionesPage() {
   useEffect(() => {
     apiFetch<{ openai_key?: string; elevenlabs_key?: string }>('/api/tenants/settings')
       .then((d) => {
-        if (d) setKeys({ openai_key: d.openai_key ?? '', elevenlabs_key: (d as { elevenlabs_key?: string }).elevenlabs_key ?? '' })
+        if (d) setKeys({
+          openai_key:     d.openai_key ?? '',
+          deepseek_key:   (d as { deepseek_key?: string }).deepseek_key ?? '',
+          elevenlabs_key: (d as { elevenlabs_key?: string }).elevenlabs_key ?? '',
+        })
       })
       .catch(console.error)
       .finally(() => setLoading(false))

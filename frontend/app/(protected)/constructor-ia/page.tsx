@@ -8,7 +8,7 @@ import InactivityRulesEditor from './InactivityRulesEditor'
 
 // ─── tipos ────────────────────────────────────────────────────────────────────
 type FlowType  = 'ai' | 'conversational_ai'
-type ModelId   = 'gpt-4o' | 'gpt-4.1' | 'gpt-3.5-turbo'
+type ModelId   = 'gpt-4o' | 'gpt-4o-mini' | 'gpt-4.1' | 'gpt-3.5-turbo' | 'deepseek-chat' | 'deepseek-reasoner'
 
 interface WelcomeItem       { id: string; type: 'text' | 'image' | 'video'; content: string }
 interface InactivityMsg     { id: string; delay: number; unit: 'minutes' | 'hours'; message: string }
@@ -44,10 +44,13 @@ interface FormState {
   inactivity_unit:     'minutes' | 'hours'
 }
 
-const MODELS: { id: ModelId; label: string; desc: string }[] = [
-  { id: 'gpt-4o',       label: 'GPT-4o',        desc: 'Más inteligente, multimodal' },
-  { id: 'gpt-4.1',      label: 'GPT-4.1',        desc: 'Último modelo de OpenAI' },
-  { id: 'gpt-3.5-turbo', label: 'GPT-3.5 Turbo', desc: 'Rápido y económico' },
+const MODELS: { id: ModelId; label: string; desc: string; badge?: string }[] = [
+  { id: 'gpt-4o',            label: 'GPT-4o',            desc: 'OpenAI — Más inteligente, multimodal' },
+  { id: 'gpt-4.1',           label: 'GPT-4.1',           desc: 'OpenAI — Último modelo' },
+  { id: 'gpt-4o-mini',       label: 'GPT-4o-mini',       desc: 'OpenAI — Rápido y económico' },
+  { id: 'gpt-3.5-turbo',     label: 'GPT-3.5 Turbo',     desc: 'OpenAI — El más barato de OpenAI' },
+  { id: 'deepseek-chat',     label: 'DeepSeek Chat',     desc: 'DeepSeek — 90% más barato que GPT-4o ✨', badge: '💰 Recomendado' },
+  { id: 'deepseek-reasoner', label: 'DeepSeek Reasoner', desc: 'DeepSeek — Razonamiento avanzado', badge: '🔮 Premium' },
 ]
 
 const VARS = [

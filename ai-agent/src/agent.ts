@@ -3,74 +3,84 @@ import OpenAI from 'openai'
 import { AgentInput, AgentResponse, AgentIntent, ChatMessage } from './types'
 import { buildSystemPrompt, INTENT_DETECTION_PROMPT } from './prompts'
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+// Determina si el modelo es de DeepSeek
+function isDeepSeek(model: string) {
+  return model.startsWith('deepseek')
+}
 
-async function detectIntent(message: string): Promise<{ intent: AgentIntent; confidence: number }> {
+// Crea el cliente correcto según el modelo y las claves disponibles
+function getClient(model: string, apiKey?: string, deepseekKey?: string): { client: OpenAI; resolvedModel: string } {
+  if (isDeepSeek(model) && deepseekKey) {
+    return {
+      client: new OpenAI({ apiKey: deepseekKey, baseURL: 'https://api.deepseek.com/v1' }),
+      resolvedModel: model,
+    }
+  }
+  // Fallback: OpenAI
+  const key = apiKey || process.env.OPENAI_API_KEY || ''
+  return {
+    client: new OpenAI({ apiKey: key }),
+    resolvedModel: model.startsWith('deepseek') ? 'gpt-4o-mini' : model, // si no hay deepseek key, usa mini
+  }
+}
+
+async function detectIntent(message: string, openaiKey?: string): Promise<{ intent: AgentIntent; confidence: number }> {
   const prompt = INTENT_DETECTION_PROMPT.replace('{message}', message)
-
-  const res = await openai.chat.completions.create({
-    model: 'gpt-4o-mini',     // modelo más barato para clasificación simple
-    messages: [{ role: 'user', content: prompt }],
-    temperature: 0,
-    max_tokens: 60,
-  })
+  const key = openaiKey || process.env.OPENAI_API_KEY || ''
+  const client = new OpenAI({ apiKey: key })
 
   try {
+    const res = await client.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0,
+      max_tokens: 60,
+    })
     const raw = res.choices[0].message.content ?? '{}'
     const parsed = JSON.parse(raw)
-    return {
-      intent: parsed.intent ?? 'general',
-      confidence: parsed.confidence ?? 0.5,
-    }
+    return { intent: parsed.intent ?? 'general', confidence: parsed.confidence ?? 0.5 }
   } catch {
     return { intent: 'general', confidence: 0.5 }
   }
 }
 
 export async function runAgent(input: AgentInput): Promise<AgentResponse> {
-  const { incomingMessage, history, tenantPrompt, productName, productPrice } = input
+  const {
+    incomingMessage, history, tenantPrompt, productName, productPrice,
+    model: requestedModel, apiKey, deepseekKey,
+  } = input as AgentInput & { model?: string; apiKey?: string; deepseekKey?: string }
 
-  const { intent, confidence } = await detectIntent(incomingMessage)
+  const model = requestedModel ?? 'gpt-4o'
 
-  // Si el cliente envió un comprobante o pide hablar con humano, no generar respuesta IA
+  const { intent, confidence } = await detectIntent(incomingMessage, apiKey)
+
   if (intent === 'voucher') {
-    return {
-      reply: '¡Recibido! Estoy verificando tu comprobante de pago. En un momento te confirmo. 🙏',
-      intent,
-      confidence,
-    }
+    return { reply: '¡Recibido! Estoy verificando tu comprobante de pago. En un momento te confirmo. 🙏', intent, confidence }
   }
-
   if (intent === 'handoff') {
-    return {
-      reply: 'Entendido, voy a conectarte con un asesor que podrá ayudarte mejor. Un momento por favor. 👤',
-      intent,
-      confidence,
-    }
+    return { reply: 'Entendido, voy a conectarte con un asesor que podrá ayudarte mejor. Un momento por favor. 👤', intent, confidence }
   }
 
   const systemPrompt = buildSystemPrompt({
-    tenantId: '',
-    systemPrompt: tenantPrompt,
-    productName: productName ?? 'Producto',
-    productPrice: productPrice ?? 0,
-    handoffThreshold: 0.4,
+    tenantId: '', systemPrompt: tenantPrompt,
+    productName: productName ?? 'Producto', productPrice: productPrice ?? 0, handoffThreshold: 0.4,
   })
 
   const messages: ChatMessage[] = [
     { role: 'system', content: systemPrompt },
-    ...history.slice(-10),               // últimos 10 mensajes para no exceder contexto
+    ...history.slice(-6),
     { role: 'user', content: incomingMessage },
   ]
 
-  const completion = await openai.chat.completions.create({
-    model: 'gpt-4o',
+  const { client, resolvedModel } = getClient(model, apiKey, deepseekKey)
+
+  const completion = await client.chat.completions.create({
+    model: resolvedModel,
     messages,
     temperature: 0.7,
-    max_tokens: 300,
+    max_tokens: 400,
   })
 
   const reply = completion.choices[0].message.content?.trim() ?? 'No pude generar una respuesta.'
-
   return { reply, intent, confidence }
 }
