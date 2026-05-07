@@ -97,14 +97,13 @@ function CampaignsTab() {
 
   const fetch = useCallback(async () => {
     setLoading(true)
-    try {
-      const [c, f] = await Promise.all([
-        apiFetch<AutoCampaign[]>('/api/automation/campaigns'),
-        apiFetch<FlowRef[]>('/api/flows'),
-      ])
-      setItems(c); setFlows(f)
-    } catch (err) { console.error(err) }
-    finally { setLoading(false) }
+    const [campaigns, flows] = await Promise.allSettled([
+      apiFetch<AutoCampaign[]>('/api/automation/campaigns'),
+      apiFetch<FlowRef[]>('/api/flows'),
+    ])
+    if (campaigns.status === 'fulfilled') setItems(campaigns.value)
+    if (flows.status === 'fulfilled')     setFlows(flows.value)
+    setLoading(false)
   }, [])
 
   useEffect(() => { fetch() }, [fetch])
@@ -224,14 +223,14 @@ function KeywordsTab() {
 
   const fetch = useCallback(async () => {
     setLoading(true)
-    try {
-      const [k, f] = await Promise.all([
-        apiFetch<Keyword[]>('/api/automation/keywords'),
-        apiFetch<FlowRef[]>('/api/flows'),
-      ])
-      setItems(k); setFlows(f)
-    } catch (err) { console.error(err) }
-    finally { setLoading(false) }
+    // Fetches separados para que un fallo no arrastre al otro
+    const [keywords, flows] = await Promise.allSettled([
+      apiFetch<Keyword[]>('/api/automation/keywords'),
+      apiFetch<FlowRef[]>('/api/flows'),
+    ])
+    if (keywords.status === 'fulfilled') setItems(keywords.value)
+    if (flows.status === 'fulfilled')    setFlows(flows.value)
+    setLoading(false)
   }, [])
 
   useEffect(() => { fetch() }, [fetch])
