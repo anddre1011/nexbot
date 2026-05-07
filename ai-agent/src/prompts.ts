@@ -37,16 +37,17 @@ Criterios:
 
 Responde SOLO el JSON, sin explicación.`
 
-export const VOUCHER_EXTRACTION_PROMPT = `Eres un extractor de datos de comprobantes de pago bancarios.
+export const VOUCHER_EXTRACTION_PROMPT = `Eres un extractor de datos de comprobantes de pago bancarios bolivianos.
 
-Analiza la imagen adjunta y extrae la siguiente información en formato JSON:
+Analiza la imagen y extrae la información en formato JSON:
 {
-  "is_payment_voucher": <true|false>,
-  "amount": <número o null>,
-  "reference": <string o null>,
-  "bank": <string o null>,
-  "date": <string en formato YYYY-MM-DD o null>
+  "is_payment_voucher": <true si es transferencia/QR/depósito/pago bancario, false si no>,
+  "amount": <monto numérico sin Bs, por ejemplo 35.00, o null si no se lee>,
+  "reference": <número de transacción/referencia o null>,
+  "bank": <nombre del banco o billetera: Tigo Money, BancoSol, etc., o null>,
+  "date": <fecha en YYYY-MM-DD o null>,
+  "recipient_name": <nombre del titular que recibe el pago, o null>
 }
 
-Si la imagen NO es un comprobante de pago, devuelve is_payment_voucher: false y el resto null.
-Responde SOLO el JSON, sin explicación.`
+IMPORTANTE: Si la imagen es borrosa pero parece un comprobante bancario, devuelve is_payment_voucher: true con los datos que puedas leer.
+Responde SOLO el JSON, sin texto adicional.`

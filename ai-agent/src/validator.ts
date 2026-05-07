@@ -11,29 +11,43 @@ interface ExtractedVoucher {
   date: string | null
 }
 
-// Usa DeepSeek si está disponible (soporta visión), OpenAI como fallback
-function getVisionClient(): { client: OpenAI; model: string } {
-  const deepseekKey = process.env.DEEPSEEK_API_KEY
-  if (deepseekKey) {
+// Prioridad de modelos con visión:
+// 1. Gemini Flash (gratis, excelente para recibos)
+// 2. OpenAI GPT-4o (si tiene saldo)
+// 3. Sin visión → aceptar imagen directamente
+function getVisionClient(): { client: OpenAI; model: string } | null {
+  const geminiKey = process.env.GEMINI_API_KEY
+  if (geminiKey) {
     return {
-      client: new OpenAI({ apiKey: deepseekKey, baseURL: 'https://api.deepseek.com/v1' }),
-      model: 'deepseek-chat',
+      client: new OpenAI({
+        apiKey: geminiKey,
+        baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/',
+      }),
+      model: 'gemini-2.0-flash',
     }
   }
-  return {
-    client: new OpenAI({ apiKey: process.env.OPENAI_API_KEY }),
-    model: 'gpt-4o',
+
+  const openaiKey = process.env.OPENAI_API_KEY
+  if (openaiKey) {
+    return {
+      client: new OpenAI({ apiKey: openaiKey }),
+      model: 'gpt-4o',
+    }
   }
+
+  return null  // Sin modelo de visión disponible
 }
 
 async function extractVoucherData(imageUrl: string): Promise<ExtractedVoucher> {
-  const { client, model } = getVisionClient()
+  const vision = getVisionClient()
 
-  // DeepSeek no soporta visión en ninguno de sus modelos → aceptar imagen directamente
-  if (model.startsWith('deepseek')) {
-    console.log('[validator] DeepSeek vision not supported — accepting image as voucher')
+  if (!vision) {
+    console.warn('[validator] No vision model configured — accepting image without verification')
     return { is_payment_voucher: true, amount: null, reference: null, bank: null, date: null }
   }
+
+  const { client, model } = vision
+  console.log(`[validator] Analyzing image with ${model}`)
 
   try {
     const res = await client.chat.completions.create({
@@ -54,10 +68,12 @@ async function extractVoucherData(imageUrl: string): Promise<ExtractedVoucher> {
     const raw = res.choices[0].message.content ?? '{}'
     const jsonMatch = raw.match(/\{[\s\S]*\}/)
     const jsonStr = jsonMatch ? jsonMatch[0] : raw
-    return JSON.parse(jsonStr)
-  } catch (err) {
-    console.error('[validator] extractVoucherData error:', err)
-    // Si falla, aceptar la imagen como comprobante (verificación manual por el dueño)
+    const result = JSON.parse(jsonStr)
+    console.log(`[validator] Result: is_voucher=${result.is_payment_voucher} amount=${result.amount}`)
+    return result
+  } catch (err: any) {
+    console.error('[validator] Vision error:', err?.status, err?.message)
+    // 402 = sin saldo → aceptar para no bloquear al cliente
     return { is_payment_voucher: true, amount: null, reference: null, bank: null, date: null }
   }
 }
