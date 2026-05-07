@@ -1,6 +1,6 @@
 'use client'
 import { useState } from 'react'
-import { apiFetch } from '@/lib/api'
+import { uploadFlowMedia } from '@/lib/upload'
 
 export interface FlowStep {
   id: string
@@ -71,17 +71,11 @@ export default function FlowStepsBuilder({
     const step = steps[idx]
     setUploading(step.id)
     try {
-      const fd = new FormData()
-      fd.append('file', file)
-      const data = await apiFetch<{ url: string }>('/api/upload/flow-media', {
-        method: 'POST', body: fd, rawBody: true,
-      } as Parameters<typeof apiFetch>[1])
-      // Generar variable automáticamente del nombre del archivo
-      const varName = toVarName(file.name, idx)
-      update(idx, { media_url: data.url, variable_name: varName })
+      const result = await uploadFlowMedia(file, toVarName(file.name, idx))
+      update(idx, { media_url: result.url, variable_name: result.varName })
     } catch (err) {
       console.error('[upload]', err)
-      alert('Error al subir. Verifica el bucket "media" en Supabase Storage.')
+      alert('Error al subir: ' + (err instanceof Error ? err.message : 'desconocido'))
     } finally { setUploading(null) }
   }
 

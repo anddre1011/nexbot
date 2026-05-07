@@ -253,7 +253,6 @@ function FlowPanel({ flow, medias, onClose, onSaved }: {
   const [uploadingMedia,    setUploadingMedia]    = useState(false)
   const [pendingMedia,      setPendingMedia]      = useState<{url: string; varName: string} | null>(null)
   const [uploadKey,         setUploadKey]         = useState(0)
-  const mediaUploadRef = useRef<HTMLInputElement>(null)
 
   // ─── Estado de pasos, conversiones e inactividad ───────────────────────────
   const [flowSteps, setFlowSteps] = useState<any[]>([])
@@ -487,15 +486,20 @@ function FlowPanel({ flow, medias, onClose, onSaved }: {
                             const file = e.target.files?.[0]; if (!file) return
                             setUploadingMedia(true)
                             try {
-                              const fd = new FormData(); fd.append('file', file)
-                              const data = await apiFetch<{ url: string }>('/api/upload/flow-media', {
-                                method: 'POST', body: fd, rawBody: true,
-                              } as Parameters<typeof apiFetch>[1])
-                              // Nombre corto: tipo + número
-                              const ext = file.type.split('/')[0] // image, video, audio
+                              const ext = file.type.split('/')[0]
                               const short = `${ext}_${Date.now().toString().slice(-4)}`
-                              setPendingMedia({ url: data.url, varName: short })
-                            } catch { alert('Error al subir. Verifica el bucket "media" en Supabase Storage.') }
+                              // Solo subir a storage — no guardar en DB todavía (se guarda al confirmar nombre)
+                              const { createClient } = await import('@/lib/supabase/client')
+                              const { data: { session } } = await createClient().auth.getSession()
+                              const token = session?.access_token ?? ''
+                              const fd = new FormData(); fd.append('file', file)
+                              const res = await fetch('https://nexbot.pro/api/upload/flow-media', {
+                                method: 'POST', body: fd, headers: { Authorization: `Bearer ${token}` }
+                              })
+                              if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.error ?? `Error ${res.status}`) }
+                              const { url } = await res.json()
+                              setPendingMedia({ url, varName: short })
+                            } catch (err) { alert('Error al subir: ' + (err instanceof Error ? err.message : 'desconocido')) }
                             finally { setUploadingMedia(false); setUploadKey(k => k + 1) }
                           }} />
                       </label>
