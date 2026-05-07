@@ -245,10 +245,13 @@ function FlowPanel({ flow, medias, onClose, onSaved }: {
     inactivity_delay:    '60',
     inactivity_unit:     'minutes',
   } : { ...EMPTY })
-  const [saving,       setSaving]       = useState(false)
-  const [error,        setError]        = useState('')
-  const [generating,   setGenerating]   = useState(false)
+  const [saving,          setSaving]          = useState(false)
+  const [error,           setError]           = useState('')
+  const [generating,      setGenerating]      = useState(false)
   const [showMediaPicker, setShowMediaPicker] = useState(false)
+  const [promptExpanded,  setPromptExpanded]  = useState(false)
+  const [uploadingMedia,  setUploadingMedia]  = useState(false)
+  const mediaUploadRef = useRef<HTMLInputElement>(null)
 
   // ─── Estado de pasos, conversiones e inactividad ───────────────────────────
   const [flowSteps, setFlowSteps] = useState<any[]>([])
@@ -401,13 +404,22 @@ function FlowPanel({ flow, medias, onClose, onSaved }: {
 
           {/* Prompt editor */}
           <div>
-            <div className="mb-2 flex items-center justify-between">
+            <div className="mb-2 flex items-center justify-between gap-2">
               <label className="text-xs font-bold uppercase tracking-widest text-gray-500">Prompt del agente</label>
-              <button onClick={handleGeneratePrompt} disabled={generating}
-                style={{ background: 'rgba(124,58,237,0.15)', border: '1px solid rgba(124,58,237,0.3)' }}
-                className="flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-semibold text-violet-300 hover:bg-violet-500/20 transition-colors disabled:opacity-40">
-                {generating ? '⏳' : '✨'} {generating ? 'Generando...' : 'Crear con IA'}
-              </button>
+              <div className="flex items-center gap-1.5">
+                {/* Expandir / comprimir */}
+                <button onClick={() => setPromptExpanded(p => !p)}
+                  style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.10)' }}
+                  className="rounded-lg px-2 py-1 text-[10px] text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
+                  title={promptExpanded ? 'Comprimir' : 'Expandir'}>
+                  {promptExpanded ? '⊡' : '⊞'}
+                </button>
+                <button onClick={handleGeneratePrompt} disabled={generating}
+                  style={{ background: 'rgba(124,58,237,0.15)', border: '1px solid rgba(124,58,237,0.3)' }}
+                  className="flex items-center gap-1 rounded-lg px-2.5 py-1 text-[10px] font-semibold text-violet-300 hover:bg-violet-500/20 transition-colors disabled:opacity-40">
+                  {generating ? '⏳' : '✨'} {generating ? 'Generando...' : 'Crear con IA'}
+                </button>
+              </div>
             </div>
 
             {/* Variables */}
@@ -419,34 +431,82 @@ function FlowPanel({ flow, medias, onClose, onSaved }: {
                   {label}
                 </button>
               ))}
-              {/* Media picker */}
+
+              {/* Media picker con upload */}
               <div className="relative">
-                <button onClick={() => setShowMediaPicker((p) => !p)}
+                <button onClick={() => setShowMediaPicker(p => !p)}
                   style={{ background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.25)' }}
                   className="rounded-lg px-2 py-0.5 text-[10px] font-bold text-amber-300 hover:bg-amber-500/20 transition-colors">
                   📁 Media
                 </button>
+
                 {showMediaPicker && (
-                  <div style={{ background: '#1a1a24', border: '1px solid rgba(255,255,255,0.1)', boxShadow: '0 8px 32px rgba(0,0,0,0.6)' }}
-                    className="absolute left-0 top-7 z-10 rounded-xl p-2 min-w-[200px] max-h-48 overflow-y-auto">
-                    {medias.filter((m) => m.variable).length === 0 ? (
-                      <p className="px-2 py-1.5 text-xs text-gray-600">Sin medias subidas</p>
-                    ) : (
-                      medias.filter((m) => m.variable).map((m) => (
-                        <button key={m.id} onClick={() => { insertAtCursor(m.variable!); setShowMediaPicker(false) }}
-                          className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-gray-300 hover:bg-white/5 transition-colors">
-                          <span>🖼️</span>
-                          <span className="truncate">{m.name}</span>
-                          <span className="ml-auto font-mono text-[9px] text-amber-300 shrink-0">{m.variable}</span>
-                        </button>
-                      ))
+                  <div style={{ background: '#1a1a24', border: '1px solid rgba(255,255,255,0.1)', boxShadow: '0 12px 40px rgba(0,0,0,0.8)' }}
+                    className="absolute left-0 top-7 z-20 rounded-xl p-2 w-64 max-h-64 overflow-y-auto">
+
+                    {/* Botón subir media directamente */}
+                    <input ref={mediaUploadRef} type="file" accept="image/*,video/*,audio/*" className="hidden"
+                      onChange={async e => {
+                        const file = e.target.files?.[0]; if (!file) return
+                        setUploadingMedia(true)
+                        try {
+                          const fd = new FormData(); fd.append('file', file)
+                          await apiFetch<{ url: string }>('/api/upload/flow-media', {
+                            method: 'POST', body: fd, rawBody: true,
+                          } as Parameters<typeof apiFetch>[1])
+                          const varName = file.name.replace(/\.[^.]+$/, '').replace(/[^a-zA-Z0-9]/g, '_').toLowerCase().slice(0, 25)
+                          const variable = `{{media:${varName}}}`
+                          insertAtCursor(variable)
+                          setShowMediaPicker(false)
+                        } catch { alert('Error al subir') }
+                        finally { setUploadingMedia(false); e.target.value = '' }
+                      }} />
+                    <button onClick={() => mediaUploadRef.current?.click()} disabled={uploadingMedia}
+                      style={{ background: 'rgba(124,58,237,0.15)', border: '1px dashed rgba(124,58,237,0.35)' }}
+                      className="flex w-full items-center gap-2 rounded-lg px-2 py-2 mb-2 text-xs font-semibold text-violet-300 hover:bg-violet-500/20 transition-colors disabled:opacity-50">
+                      {uploadingMedia ? '⏳ Subiendo...' : '📤 Subir imagen / video / audio'}
+                    </button>
+
+                    {/* Variables de steps del flujo actual */}
+                    {flowSteps.filter((s: any) => s.variable_name).length > 0 && (
+                      <>
+                        <p className="px-2 mb-1 text-[9px] font-bold uppercase tracking-widest text-gray-600">Del flujo</p>
+                        {flowSteps.filter((s: any) => s.variable_name).map((s: any) => (
+                          <button key={s.id} onClick={() => { insertAtCursor(`{{media:${s.variable_name}}}`); setShowMediaPicker(false) }}
+                            className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-gray-300 hover:bg-white/5 transition-colors">
+                            <span>{s.type === 'image' ? '🖼️' : s.type === 'video' ? '🎬' : '🔊'}</span>
+                            <span className="truncate font-mono text-[10px] text-amber-300">{`{{media:${s.variable_name}}}`}</span>
+                          </button>
+                        ))}
+                      </>
+                    )}
+
+                    {/* Biblioteca de medias */}
+                    {medias.filter(m => m.variable).length > 0 && (
+                      <>
+                        <p className="px-2 mb-1 mt-2 text-[9px] font-bold uppercase tracking-widest text-gray-600">Biblioteca</p>
+                        {medias.filter(m => m.variable).map(m => (
+                          <button key={m.id} onClick={() => { insertAtCursor(m.variable!); setShowMediaPicker(false) }}
+                            className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-gray-300 hover:bg-white/5 transition-colors">
+                            <span>🖼️</span>
+                            <span className="truncate flex-1">{m.name}</span>
+                            <span className="font-mono text-[9px] text-amber-300 shrink-0">{m.variable}</span>
+                          </button>
+                        ))}
+                      </>
+                    )}
+
+                    {flowSteps.filter((s: any) => s.variable_name).length === 0 && medias.filter(m => m.variable).length === 0 && (
+                      <p className="px-2 py-1 text-xs text-gray-600">Sin medias. Sube una arriba.</p>
                     )}
                   </div>
                 )}
               </div>
             </div>
 
-            <textarea ref={promptRef} rows={8} value={form.system_prompt}
+            <textarea ref={promptRef}
+              rows={promptExpanded ? 22 : 8}
+              value={form.system_prompt}
               onChange={(e) => set('system_prompt', e.target.value)}
               style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.10)' }}
               className="w-full rounded-xl px-4 py-3 font-mono text-xs leading-relaxed text-gray-200 placeholder-gray-600 outline-none transition-all focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20 resize-none" />
