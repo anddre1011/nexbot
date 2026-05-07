@@ -29,8 +29,8 @@ function getVisionClient(): { client: OpenAI; model: string } {
 async function extractVoucherData(imageUrl: string): Promise<ExtractedVoucher> {
   const { client, model } = getVisionClient()
 
-  // DeepSeek-chat no soporta visión → aceptar imagen directamente
-  if (model === 'deepseek-chat') {
+  // DeepSeek no soporta visión en ninguno de sus modelos → aceptar imagen directamente
+  if (model.startsWith('deepseek')) {
     console.log('[validator] DeepSeek vision not supported — accepting image as voucher')
     return { is_payment_voucher: true, amount: null, reference: null, bank: null, date: null }
   }
