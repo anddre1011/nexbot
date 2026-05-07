@@ -8,7 +8,7 @@ import InactivityRulesEditor from './InactivityRulesEditor'
 
 // ─── tipos ────────────────────────────────────────────────────────────────────
 type FlowType  = 'ai' | 'conversational_ai'
-type ModelId   = 'gpt-4o' | 'gpt-4o-mini' | 'gpt-4.1' | 'gpt-3.5-turbo' | 'deepseek-chat' | 'deepseek-reasoner'
+type ModelId   = 'gpt-4o' | 'gpt-4o-mini' | 'gpt-4.1' | 'gpt-3.5-turbo' | 'deepseek-v4-pro' | 'deepseek-v4-flash' | 'deepseek-chat' | 'deepseek-reasoner'
 
 interface WelcomeItem       { id: string; type: 'text' | 'image' | 'video'; content: string }
 interface InactivityMsg     { id: string; delay: number; unit: 'minutes' | 'hours'; message: string }
@@ -45,12 +45,14 @@ interface FormState {
 }
 
 const MODELS: { id: ModelId; label: string; desc: string; badge?: string }[] = [
-  { id: 'gpt-4o',            label: 'GPT-4o',            desc: 'OpenAI — Más inteligente, multimodal' },
-  { id: 'gpt-4.1',           label: 'GPT-4.1',           desc: 'OpenAI — Último modelo' },
-  { id: 'gpt-4o-mini',       label: 'GPT-4o-mini',       desc: 'OpenAI — Rápido y económico' },
-  { id: 'gpt-3.5-turbo',     label: 'GPT-3.5 Turbo',     desc: 'OpenAI — El más barato de OpenAI' },
-  { id: 'deepseek-chat',     label: 'DeepSeek Chat',     desc: 'DeepSeek — 90% más barato que GPT-4o ✨', badge: '💰 Recomendado' },
-  { id: 'deepseek-reasoner', label: 'DeepSeek Reasoner', desc: 'DeepSeek — Razonamiento avanzado', badge: '🔮 Premium' },
+  { id: 'deepseek-v4-pro',   label: 'DeepSeek V4 Pro',   desc: 'DeepSeek — Más capaz, 90% más barato que GPT-4o', badge: '💰 Recomendado' },
+  { id: 'deepseek-v4-flash', label: 'DeepSeek V4 Flash',  desc: 'DeepSeek — Ultra rápido y económico', badge: '⚡ Rápido' },
+  { id: 'gpt-4o',            label: 'GPT-4o',             desc: 'OpenAI — Multimodal, validación de comprobantes' },
+  { id: 'gpt-4o-mini',       label: 'GPT-4o-mini',        desc: 'OpenAI — Rápido y económico' },
+  { id: 'gpt-4.1',           label: 'GPT-4.1',            desc: 'OpenAI — Último modelo' },
+  { id: 'gpt-3.5-turbo',     label: 'GPT-3.5 Turbo',      desc: 'OpenAI — El más barato de OpenAI' },
+  { id: 'deepseek-chat',     label: 'DeepSeek Chat (V3)', desc: 'Deprecado el 24 jul 2026 — migra a V4 Pro' },
+  { id: 'deepseek-reasoner', label: 'DeepSeek Reasoner',  desc: 'Deprecado el 24 jul 2026 — migra a V4 Pro' },
 ]
 
 const VARS = [

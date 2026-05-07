@@ -5,7 +5,7 @@ import { buildSystemPrompt, INTENT_DETECTION_PROMPT } from './prompts'
 
 // Determina si el modelo es de DeepSeek
 function isDeepSeek(model: string) {
-  return model.startsWith('deepseek')
+  return model.startsWith('deepseek') // deepseek-v4-pro, deepseek-v4-flash, deepseek-chat, deepseek-reasoner
 }
 
 // Crea el cliente correcto según el modelo y las claves disponibles
