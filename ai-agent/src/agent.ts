@@ -74,13 +74,27 @@ export async function runAgent(input: AgentInput): Promise<AgentResponse> {
 
   const { client, resolvedModel } = getClient(model, apiKey, deepseekKey)
 
-  const completion = await client.chat.completions.create({
-    model: resolvedModel,
-    messages,
-    temperature: 0.7,
-    max_tokens: 400,
-  })
+  try {
+    const completion = await client.chat.completions.create({
+      model: resolvedModel,
+      messages,
+      temperature: 0.7,
+      max_tokens: 400,
+    })
 
-  const reply = completion.choices[0].message.content?.trim() ?? 'No pude generar una respuesta.'
-  return { reply, intent, confidence }
+    const reply = completion.choices[0].message.content?.trim()
+    if (!reply) {
+      console.error(`[agent] Empty reply from ${resolvedModel}`)
+      return { reply: '¡Hola! Estoy aquí para ayudarte. ¿En qué te puedo asistir? 😊', intent, confidence }
+    }
+    return { reply, intent, confidence }
+  } catch (err: any) {
+    const code = err?.status ?? err?.code ?? ''
+    console.error(`[agent] API error (${resolvedModel}):`, code, err?.message ?? err)
+
+    if (code === 402 || String(err?.message).includes('Insufficient Balance')) {
+      return { reply: 'En este momento estoy con problemas técnicos. Por favor escríbeme en unos minutos. 🙏', intent, confidence }
+    }
+    return { reply: '¡Hola! ¿En qué te puedo ayudar hoy? 😊', intent, confidence }
+  }
 }
