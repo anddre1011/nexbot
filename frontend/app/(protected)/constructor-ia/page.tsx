@@ -248,9 +248,10 @@ function FlowPanel({ flow, medias, onClose, onSaved }: {
   const [saving,          setSaving]          = useState(false)
   const [error,           setError]           = useState('')
   const [generating,      setGenerating]      = useState(false)
-  const [showMediaPicker, setShowMediaPicker] = useState(false)
-  const [promptExpanded,  setPromptExpanded]  = useState(false)
-  const [uploadingMedia,  setUploadingMedia]  = useState(false)
+  const [showMediaPicker,   setShowMediaPicker]   = useState(false)
+  const [promptExpanded,    setPromptExpanded]    = useState(false)
+  const [uploadingMedia,    setUploadingMedia]    = useState(false)
+  const [pendingMedia,      setPendingMedia]      = useState<{url: string; varName: string} | null>(null)
   const mediaUploadRef = useRef<HTMLInputElement>(null)
 
   // ─── Estado de pasos, conversiones e inactividad ───────────────────────────
@@ -444,28 +445,60 @@ function FlowPanel({ flow, medias, onClose, onSaved }: {
                   <div style={{ background: '#1a1a24', border: '1px solid rgba(255,255,255,0.1)', boxShadow: '0 12px 40px rgba(0,0,0,0.8)' }}
                     className="absolute left-0 top-7 z-20 rounded-xl p-2 w-64 max-h-64 overflow-y-auto">
 
-                    {/* Label-based upload — más confiable que button+ref */}
-                    <label
-                      style={{ background: uploadingMedia ? 'rgba(124,58,237,0.08)' : 'rgba(124,58,237,0.15)', border: '1px dashed rgba(124,58,237,0.35)', cursor: uploadingMedia ? 'not-allowed' : 'pointer' }}
-                      className="flex w-full items-center gap-2 rounded-lg px-2 py-2 mb-2 text-xs font-semibold text-violet-300 hover:bg-violet-500/25 transition-colors">
-                      {uploadingMedia ? '⏳ Subiendo...' : '📤 Subir imagen / video / audio'}
-                      <input type="file" accept="image/*,video/*,audio/*" className="hidden"
-                        disabled={uploadingMedia}
-                        onChange={async e => {
-                          const file = e.target.files?.[0]; if (!file) return
-                          setUploadingMedia(true)
-                          try {
-                            const fd = new FormData(); fd.append('file', file)
-                            await apiFetch<{ url: string }>('/api/upload/flow-media', {
-                              method: 'POST', body: fd, rawBody: true,
-                            } as Parameters<typeof apiFetch>[1])
-                            const varName = file.name.replace(/\.[^.]+$/, '').replace(/[^a-zA-Z0-9]/g, '_').toLowerCase().slice(0, 25)
-                            insertAtCursor(`{{media:${varName}}}`)
+                    {/* Upload + rename antes de insertar */}
+                    {pendingMedia ? (
+                      <div style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.25)' }}
+                        className="rounded-xl p-2.5 mb-2">
+                        <p className="text-[10px] text-emerald-400 mb-1.5">✓ Subido — edita el nombre:</p>
+                        <input
+                          value={pendingMedia.varName}
+                          onChange={e => setPendingMedia(p => p ? { ...p, varName: e.target.value.replace(/[^a-zA-Z0-9_]/g,'_').toLowerCase() } : null)}
+                          style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)' }}
+                          className="w-full rounded-lg px-2 py-1 font-mono text-xs text-white outline-none mb-1.5" />
+                        <div className="flex gap-1.5">
+                          <button onClick={async () => {
+                            const v = `{{media:${pendingMedia.varName}}}`
+                            insertAtCursor(v)
+                            // Guardar en tabla media para que aparezca en Biblioteca
+                            apiFetch('/api/media', { method: 'POST', body: JSON.stringify({ name: pendingMedia.varName, type: 'image', url: pendingMedia.url, variable: v }) }).catch(() => {})
+                            // Guardado en tabla media — el dropdown mostrará el nuevo item en la próxima apertura
+                            setPendingMedia(null)
                             setShowMediaPicker(false)
-                          } catch { alert('Error al subir. Verifica el bucket "media" en Supabase Storage.') }
-                          finally { setUploadingMedia(false); e.target.value = '' }
-                        }} />
-                    </label>
+                          }}
+                          style={{ background: 'linear-gradient(135deg,#7c3aed,#2563eb)' }}
+                          className="flex-1 rounded-lg py-1.5 text-[10px] font-bold text-white">
+                            Insertar en prompt
+                          </button>
+                          <button onClick={() => setPendingMedia(null)}
+                            className="rounded-lg px-2 py-1.5 text-[10px] text-gray-500 hover:text-red-400 transition-colors">
+                            ✕
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <label
+                        style={{ background: uploadingMedia ? 'rgba(124,58,237,0.08)' : 'rgba(124,58,237,0.15)', border: '1px dashed rgba(124,58,237,0.35)', cursor: uploadingMedia ? 'not-allowed' : 'pointer' }}
+                        className="flex w-full items-center gap-2 rounded-lg px-2 py-2 mb-2 text-xs font-semibold text-violet-300 hover:bg-violet-500/25 transition-colors">
+                        {uploadingMedia ? '⏳ Subiendo...' : '📤 Subir imagen / video / audio'}
+                        <input type="file" accept="image/*,video/*,audio/*" className="hidden"
+                          disabled={uploadingMedia}
+                          onChange={async e => {
+                            const file = e.target.files?.[0]; if (!file) return
+                            setUploadingMedia(true)
+                            try {
+                              const fd = new FormData(); fd.append('file', file)
+                              const data = await apiFetch<{ url: string }>('/api/upload/flow-media', {
+                                method: 'POST', body: fd, rawBody: true,
+                              } as Parameters<typeof apiFetch>[1])
+                              // Nombre corto: tipo + número
+                              const ext = file.type.split('/')[0] // image, video, audio
+                              const short = `${ext}_${Date.now().toString().slice(-4)}`
+                              setPendingMedia({ url: data.url, varName: short })
+                            } catch { alert('Error al subir. Verifica el bucket "media" en Supabase Storage.') }
+                            finally { setUploadingMedia(false); e.target.value = '' }
+                          }} />
+                      </label>
+                    )}
 
                     {/* Variables de steps del flujo actual */}
                     {flowSteps.filter((s: any) => s.variable_name).length > 0 && (
