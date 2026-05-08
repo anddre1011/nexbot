@@ -220,8 +220,7 @@ router.post('/connect-whatsapp', async (req, res) => {
 
     // ── PASO 5: Guardar todo en Supabase ──
     try {
-      const payload: Record<string, unknown> = {
-        user_id: userId,
+      const updateFields: Record<string, unknown> = {
         meta_token,
         phone_number_id,
         whatsapp_number: whatsapp_number?.trim() ?? null,
@@ -229,13 +228,35 @@ router.post('/connect-whatsapp', async (req, res) => {
         active: true,
       }
 
-      const { data: tenant, error: dbErr } = await supabase
+      // Buscar tenant existente del usuario
+      const { data: existing } = await supabase
         .from('tenants')
-        .upsert(payload, { onConflict: 'user_id' })
-        .select('id, name')
-        .single()
+        .select('id')
+        .eq('user_id', userId)
+        .maybeSingle()
 
-      if (dbErr) throw dbErr
+      let tenant: { id: string; name: string | null }
+
+      if (existing) {
+        // UPDATE tenant existente
+        const { data, error: updErr } = await supabase
+          .from('tenants')
+          .update(updateFields)
+          .eq('id', existing.id)
+          .select('id, name')
+          .single()
+        if (updErr) throw updErr
+        tenant = data
+      } else {
+        // INSERT nuevo tenant
+        const { data, error: insErr } = await supabase
+          .from('tenants')
+          .insert({ ...updateFields, user_id: userId, name: 'Mi Negocio' })
+          .select('id, name')
+          .single()
+        if (insErr) throw insErr
+        tenant = data
+      }
 
       results.push({ step: 'save_tenant', status: 'ok', detail: `Tenant ${tenant.id} actualizado` })
 
