@@ -2,12 +2,26 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { apiFetch } from '@/lib/api'
+
+interface ConnectResult {
+  step: string
+  status: 'ok' | 'warning' | 'error' | 'skipped'
+  detail?: string
+}
+
+const STEP_LABELS: Record<string, string> = {
+  validate_token:      '🔑 Validar Token',
+  get_waba_id:         '🏢 Obtener WABA ID',
+  subscribe_webhooks:  '🔔 Suscribir Webhooks',
+  register_phone:      '📱 Registrar Número',
+  save_tenant:         '💾 Guardar Configuración',
+}
 
 export default function ConexionPage() {
   const [tenantId,  setTenantId]  = useState<string | null>(null)
   const [loading,   setLoading]   = useState(true)
   const [saving,    setSaving]    = useState(false)
-  const [saved,     setSaved]     = useState(false)
   const [error,     setError]     = useState('')
   const [form, setForm] = useState({
     whatsapp_number:      '',
@@ -15,6 +29,11 @@ export default function ConexionPage() {
     meta_token:           '',
     webhook_verify_token: '',
   })
+
+  // Estado de conexión
+  const [connecting, setConnecting] = useState(false)
+  const [connectResults, setConnectResults] = useState<ConnectResult[]>([])
+  const [connected, setConnected] = useState(false)
 
   // ─── cargar tenant actual ──────────────────────────────────────────────────
   useEffect(() => {
@@ -31,12 +50,9 @@ export default function ConexionPage() {
 
       if (data) {
         setTenantId(data.id)
-
-        // Sanear phone_number_id: debe ser numérico, no un email ni texto con '@'
         const rawPhoneId = data.phone_number_id ?? ''
         const cleanPhoneId = rawPhoneId.includes('@') ? '' : rawPhoneId
 
-        // Si el valor corrupto está en BD, limpiarlo también en Supabase
         if (rawPhoneId !== cleanPhoneId) {
           await supabase.from('tenants').update({ phone_number_id: null }).eq('id', data.id)
         }
@@ -47,70 +63,67 @@ export default function ConexionPage() {
           meta_token:           data.meta_token ?? '',
           webhook_verify_token: data.webhook_verify_token ?? '',
         })
+
+        // Si ya tiene token y phone_id, está conectado
+        if (data.meta_token && data.phone_number_id && !data.meta_token.startsWith('••')) {
+          setConnected(true)
+        }
       }
       setLoading(false)
     }
     load()
   }, [])
 
-  const isConnected = !!(tenantId && form.whatsapp_number && form.meta_token && !form.meta_token.startsWith('••'))
+  const isConfigured = !!(form.whatsapp_number && form.meta_token && form.phone_number_id)
 
-  // ─── guardar ───────────────────────────────────────────────────────────────
-  async function handleSave() {
+  // ─── CONECTAR WHATSAPP (automático) ─────────────────────────────────────────
+  async function handleConnect() {
     setError('')
     if (!form.whatsapp_number.trim()) { setError('El número de WhatsApp es obligatorio'); return }
     if (!form.phone_number_id.trim()) { setError('El Phone Number ID es obligatorio'); return }
     if (!form.meta_token.trim())      { setError('El Meta Access Token es obligatorio'); return }
 
-    setSaving(true)
+    setConnecting(true)
+    setConnectResults([])
+
     try {
+      // Asegurar usuario en public.users
       const supabase = createClient()
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) throw new Error('No autenticado')
+      await supabase.from('users').upsert({ id: user.id, email: user.email ?? '' }, { onConflict: 'id' })
 
-      // 1. Asegurar que el usuario existe en public.users
-      await supabase
-        .from('users')
-        .upsert({ id: user.id, email: user.email ?? '' }, { onConflict: 'id' })
+      // Llamar endpoint que hace TODO automáticamente
+      const result = await apiFetch<{
+        ok: boolean
+        connected: boolean
+        tenant_id: string
+        waba_id: string | null
+        webhook_url: string
+        results: ConnectResult[]
+      }>('/api/tenants/connect-whatsapp', {
+        method: 'POST',
+        body: JSON.stringify({
+          meta_token:           form.meta_token.trim(),
+          phone_number_id:      form.phone_number_id.trim(),
+          whatsapp_number:      form.whatsapp_number.trim(),
+          webhook_verify_token: form.webhook_verify_token.trim() || null,
+        }),
+      })
 
-      const payload = {
-        whatsapp_number:      form.whatsapp_number.trim(),
-        phone_number_id:      form.phone_number_id.trim() || null,
-        meta_token:           form.meta_token.trim(),
-        webhook_verify_token: form.webhook_verify_token.trim() || null,
-      }
+      setConnectResults(result.results)
+      setTenantId(result.tenant_id)
 
-      if (tenantId) {
-        // 2a. Tenant existe → UPDATE
-        const { error: updErr } = await supabase
-          .from('tenants')
-          .update(payload)
-          .eq('id', tenantId)
-
-        if (updErr) throw new Error(updErr.message)
+      if (result.connected) {
+        setConnected(true)
       } else {
-        // 2b. Primer acceso → INSERT
-        const { data: newTenant, error: insErr } = await supabase
-          .from('tenants')
-          .insert({ user_id: user.id, name: 'Mi Negocio', ...payload })
-          .select('id')
-          .single()
-
-        if (insErr) throw new Error(insErr.message)
-        setTenantId(newTenant.id)
+        const errorStep = result.results.find(r => r.status === 'error')
+        setError(errorStep?.detail ?? 'Algunos pasos fallaron')
       }
-
-      setSaved(true)
-      setTimeout(() => setSaved(false), 4000)
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Error desconocido'
-      if (msg.includes('duplicate') || msg.includes('unique')) {
-        setError('Ese número de WhatsApp ya está registrado en otra cuenta.')
-      } else {
-        setError(msg)
-      }
+      setError(err instanceof Error ? err.message : 'Error al conectar')
     } finally {
-      setSaving(false)
+      setConnecting(false)
     }
   }
 
@@ -127,41 +140,10 @@ export default function ConexionPage() {
         .eq('id', tenantId)
       if (err) throw new Error(err.message)
       setForm((p) => ({ ...p, meta_token: '', phone_number_id: '', webhook_verify_token: '' }))
+      setConnected(false)
+      setConnectResults([])
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al desconectar')
-    }
-  }
-
-  // ─── registrar en meta api ──────────────────────────────────────────────────
-  const [registering, setRegistering] = useState(false)
-  async function handleRegisterMeta() {
-    if (!form.phone_number_id || !form.meta_token) {
-      setError('Necesitas guardar el Phone Number ID y el Meta Token primero')
-      return
-    }
-    setRegistering(true)
-    setError('')
-    try {
-      const pin = prompt('Ingresa un PIN de 6 dígitos para proteger tu número en Meta (ej: 123456):', '123456')
-      if (!pin || pin.length !== 6) throw new Error('El PIN debe tener 6 dígitos')
-
-      const res = await fetch(`https://graph.facebook.com/v20.0/${form.phone_number_id}/register`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${form.meta_token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ messaging_product: 'whatsapp', pin })
-      })
-
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error?.message || 'Error al registrar en Meta')
-      
-      alert('¡Número registrado exitosamente en la API de Meta! Ya debería estar "Conectado".')
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al registrar')
-    } finally {
-      setRegistering(false)
     }
   }
 
@@ -171,41 +153,34 @@ export default function ConexionPage() {
     <div className="max-w-2xl">
       <div className="mb-6">
         <h2 className="text-xl font-bold text-white">Conexión WhatsApp</h2>
-        <p className="mt-1 text-sm text-gray-500">Conecta tu número de WhatsApp Business vía Meta Cloud API</p>
+        <p className="mt-1 text-sm text-gray-500">Conecta tu número de WhatsApp Business — NexBot configura todo automáticamente</p>
       </div>
 
       {/* Badge de estado */}
       <div style={{
-        background: isConnected || saved ? 'rgba(16,185,129,0.08)' : 'rgba(245,158,11,0.08)',
-        border: `1px solid ${isConnected || saved ? 'rgba(16,185,129,0.25)' : 'rgba(245,158,11,0.25)'}`,
+        background: connected ? 'rgba(16,185,129,0.08)' : 'rgba(245,158,11,0.08)',
+        border: `1px solid ${connected ? 'rgba(16,185,129,0.25)' : 'rgba(245,158,11,0.25)'}`,
       }} className="mb-6 flex items-center gap-4 rounded-2xl p-4">
-        <div className={`h-3 w-3 shrink-0 rounded-full ${isConnected || saved ? 'bg-emerald-400' : 'bg-amber-400'}`}
-          style={{ boxShadow: isConnected || saved ? '0 0 8px rgba(16,185,129,0.7)' : 'none' }} />
+        <div className={`h-3 w-3 shrink-0 rounded-full ${connected ? 'bg-emerald-400' : 'bg-amber-400'}`}
+          style={{ boxShadow: connected ? '0 0 8px rgba(16,185,129,0.7)' : 'none' }} />
         <div className="flex-1">
-          <p className={`text-sm font-semibold ${isConnected || saved ? 'text-emerald-400' : 'text-amber-400'}`}>
-            {saved ? '✓ Guardado en Supabase' : isConnected ? 'WhatsApp conectado' : 'Sin conectar'}
+          <p className={`text-sm font-semibold ${connected ? 'text-emerald-400' : 'text-amber-400'}`}>
+            {connected ? '✓ WhatsApp conectado — webhooks activos' : 'Sin conectar'}
           </p>
           <p className="text-xs text-gray-500">
-            {isConnected ? `Número: ${form.whatsapp_number}` : 'Completa el formulario para conectar tu número'}
+            {connected ? `Número: ${form.whatsapp_number}` : 'Completa el formulario y haz click en Conectar'}
           </p>
         </div>
-        {isConnected && (
-          <div className="flex items-center gap-2">
-            <button onClick={handleRegisterMeta} disabled={registering}
-              style={{ background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.25)' }}
-              className="shrink-0 rounded-lg px-3 py-1.5 text-xs font-semibold text-blue-400 hover:bg-blue-500/20 transition-colors disabled:opacity-50">
-              {registering ? '...' : 'Registrar en Meta API'}
-            </button>
-            <button onClick={handleDisconnect}
-              style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)' }}
-              className="shrink-0 rounded-lg px-3 py-1.5 text-xs font-semibold text-red-400 hover:bg-red-500/20 transition-colors">
-              Desconectar
-            </button>
-          </div>
+        {connected && (
+          <button onClick={handleDisconnect}
+            style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)' }}
+            className="shrink-0 rounded-lg px-3 py-1.5 text-xs font-semibold text-red-400 hover:bg-red-500/20 transition-colors">
+            Desconectar
+          </button>
         )}
       </div>
 
-      {/* Pasos */}
+      {/* Pasos de configuración */}
       <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}
         className="mb-6 rounded-2xl p-5">
         <p className="mb-4 text-xs font-bold uppercase tracking-widest text-gray-500">Cómo obtener las credenciales</p>
@@ -213,7 +188,7 @@ export default function ConexionPage() {
           {[
             { n: '1', t: 'Crea una App en Meta for Developers', d: 'developers.facebook.com → Mis Apps → Crear → Tipo: Empresa' },
             { n: '2', t: 'Agrega el producto WhatsApp',         d: 'Tu app → Agregar Productos → WhatsApp → Configurar' },
-            { n: '3', t: 'Obtén el Access Token',               d: 'WhatsApp → API Setup → copia el Token de acceso' },
+            { n: '3', t: 'Obtén el Access Token',               d: 'WhatsApp → API Setup → copia el Token de acceso permanente' },
             { n: '4', t: 'Obtén el Phone Number ID',            d: 'WhatsApp → API Setup → FROM field → copia el Phone Number ID' },
           ].map(({ n, t, d }) => (
             <div key={n} className="flex gap-3">
@@ -245,13 +220,14 @@ export default function ConexionPage() {
         <DField label="Meta Access Token *" value={form.meta_token}
           onChange={(v) => setForm((p) => ({ ...p, meta_token: v }))}
           placeholder="EAAxxxxx..." type="password"
-          hint="Token de acceso de tu app de Meta" />
+          hint="Token permanente de tu app de Meta (System User Token)" />
 
         <DField label="Webhook Verify Token" value={form.webhook_verify_token}
           onChange={(v) => setForm((p) => ({ ...p, webhook_verify_token: v }))}
-          placeholder="mi-token-secreto-personalizado"
-          hint="Cadena secreta que defines tú para verificar el webhook en Meta" />
+          placeholder="mi-token-secreto"
+          hint="Opcional — cadena secreta para verificar el webhook" />
 
+        {/* Error */}
         {error && (
           <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)' }}
             className="rounded-xl px-4 py-3 text-sm text-red-400">
@@ -259,17 +235,54 @@ export default function ConexionPage() {
           </div>
         )}
 
+        {/* Resultados de conexión */}
+        {connectResults.length > 0 && (
+          <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}
+            className="rounded-xl p-4">
+            <p className="mb-3 text-xs font-bold uppercase tracking-widest text-gray-500">
+              Diagnóstico de conexión
+            </p>
+            <div className="flex flex-col gap-2">
+              {connectResults.map((r, i) => (
+                <div key={i} className="flex items-center gap-3">
+                  <span className="text-base">
+                    {r.status === 'ok' ? '✅' : r.status === 'warning' ? '⚠️' : r.status === 'skipped' ? '⏭️' : '❌'}
+                  </span>
+                  <div className="flex-1">
+                    <p className="text-xs font-medium text-gray-300">
+                      {STEP_LABELS[r.step] ?? r.step}
+                    </p>
+                    {r.detail && (
+                      <p className="text-[10px] text-gray-500">{r.detail}</p>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Webhook URL info + botón */}
         <div className="flex items-start justify-between gap-4 pt-1">
           <div>
             <p className="text-[10px] text-gray-600 mb-0.5">Webhook URL para Meta:</p>
             <code className="text-[11px] text-violet-400 break-all">
-              {process.env.NEXT_PUBLIC_APP_URL ?? process.env.NEXT_PUBLIC_API_URL ?? 'https://nexbot.pro'}/api/whatsapp/webhook
+              https://nexbot.pro/api/whatsapp/webhook
             </code>
           </div>
-          <button onClick={handleSave} disabled={saving}
-            style={{ background: saving ? 'rgba(124,58,237,0.4)' : 'linear-gradient(135deg, #7c3aed, #2563eb)' }}
+          <button onClick={handleConnect} disabled={connecting || !isConfigured}
+            style={{
+              background: connecting
+                ? 'rgba(124,58,237,0.4)'
+                : 'linear-gradient(135deg, #7c3aed, #2563eb)',
+            }}
             className="shrink-0 rounded-xl px-5 py-2.5 text-sm font-bold text-white transition-all hover:opacity-90 disabled:opacity-50">
-            {saving ? 'Guardando...' : isConnected ? 'Actualizar' : 'Conectar WhatsApp'}
+            {connecting ? (
+              <span className="flex items-center gap-2">
+                <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                Conectando...
+              </span>
+            ) : connected ? 'Reconectar' : '🚀 Conectar WhatsApp'}
           </button>
         </div>
       </div>
