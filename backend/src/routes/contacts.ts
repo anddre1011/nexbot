@@ -26,7 +26,8 @@ router.get('/', async (req, res) => {
 
   const { status, campaign_id, kanban, search } = req.query
 
-  const { data, error } = await supabase.rpc('get_contacts_list', {
+  // Intentar RPC enriquecida, fallback a query simple si falla
+  let { data, error } = await supabase.rpc('get_contacts_list', {
     p_tenant_id:   tenantId,
     p_status:      (status      as string) ?? null,
     p_campaign_id: (campaign_id as string) ?? null,
@@ -34,7 +35,17 @@ router.get('/', async (req, res) => {
     p_search:      (search      as string) ?? null,
   })
 
-  if (error) { res.status(500).json({ error: error.message }); return }
+  if (error) {
+    // Fallback: query directa sin RPC
+    const q = supabase.from('contacts').select('*').eq('tenant_id', tenantId).order('last_message_at', { ascending: false })
+    if (search) q.or(`name.ilike.%${search}%,phone.ilike.%${search}%`)
+    const { data: fallback, error: e2 } = await q
+    if (e2) { res.status(500).json({ error: e2.message }); return }
+    data = fallback
+    error = null
+  }
+
+  if (error) { res.status(500).json({ error: (error as any)?.message ?? 'Error' }); return }
   res.json(data)
 })
 

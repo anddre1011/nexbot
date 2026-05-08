@@ -75,7 +75,25 @@ export default function MediasPage() {
     try {
       await apiFetch(`/api/media/${item.id}`, { method: 'DELETE' })
       setMedia((p) => p.filter((m) => m.id !== item.id))
-    } catch (err) { console.error(err) }
+      alert('Eliminado correctamente')
+    } catch (err) {
+      alert('Error al eliminar: ' + (err instanceof Error ? err.message : 'desconocido'))
+    }
+  }
+
+  async function handleRename(item: Media, newName: string) {
+    if (!newName.trim() || newName === item.name) return
+    const clean = newName.trim().replace(/[^a-zA-Z0-9_]/g, '_').toLowerCase()
+    const variable = `{{media:${clean}}}`
+    try {
+      await apiFetch(`/api/media/${item.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ name: newName.trim(), variable }),
+      })
+      setMedia((p) => p.map((m) => m.id === item.id ? { ...m, name: newName.trim(), variable } : m))
+    } catch (err) {
+      alert('Error al renombrar: ' + (err instanceof Error ? err.message : 'desconocido'))
+    }
   }
 
   function copyVariable(v: string) {
@@ -141,11 +159,17 @@ export default function MediasPage() {
                 <tr key={item.id} style={{ borderTop: '1px solid rgba(255,255,255,0.04)' }}
                   className="hover:bg-white/[0.02] transition-colors">
                   <td className="px-5 py-3">
-                    <div className="flex items-center gap-3">
-                      <span className="text-lg">{TYPE_ICON[item.type] ?? '📄'}</span>
-                      <div>
-                        <p className="text-sm font-medium text-gray-200 truncate max-w-[180px]">{item.name}</p>
-                        <p className="text-[10px] text-gray-600 uppercase">{item.type}</p>
+                    <div className="flex items-center gap-2">
+                      <span className="text-lg shrink-0">{TYPE_ICON[item.type] ?? '📄'}</span>
+                      <div className="min-w-0">
+                        <input
+                          defaultValue={item.name}
+                          onBlur={(e) => handleRename(item, e.target.value)}
+                          onKeyDown={(e) => { if (e.key === 'Enter') { e.currentTarget.blur() } }}
+                          style={{ background: 'transparent', border: 'none', outline: 'none' }}
+                          className="text-sm font-medium text-gray-200 truncate max-w-[160px] hover:bg-white/5 focus:bg-white/10 rounded px-1 cursor-text transition-colors"
+                        />
+                        <p className="text-[10px] text-gray-600 uppercase px-1">{item.type}</p>
                       </div>
                     </div>
                   </td>

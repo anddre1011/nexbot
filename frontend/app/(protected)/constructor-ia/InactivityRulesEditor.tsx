@@ -21,6 +21,7 @@ const RULE_TYPES = [
   { type: 'text',      icon: '💬', label: 'Texto' },
   { type: 'image',     icon: '🖼️', label: 'Imagen' },
   { type: 'video',     icon: '🎬', label: 'Video' },
+  { type: 'document',  icon: '📄', label: 'PDF/Archivo' },
   { type: 'media_var', icon: '📁', label: 'Variable Media' },
 ]
 

@@ -30,6 +30,16 @@ router.post('/', async (req, res) => {
   res.status(201).json(data)
 })
 
+router.patch('/:id', async (req, res) => {
+  const { name, variable } = req.body
+  const updates: Record<string, string> = {}
+  if (name)     updates.name     = name
+  if (variable) updates.variable = variable
+  const { data, error } = await supabase.from('media').update(updates).eq('id', req.params.id).select().single()
+  if (error) { res.status(500).json({ error: error.message }); return }
+  res.json(data)
+})
+
 router.delete('/:id', async (req, res) => {
   const { error } = await supabase.from('media').delete().eq('id', req.params.id)
   if (error) { res.status(500).json({ error: error.message }); return }
