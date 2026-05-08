@@ -56,10 +56,11 @@ const MODELS: { id: ModelId; label: string; desc: string; badge?: string }[] = [
 ]
 
 const VARS = [
-  { label: '{{nombre}}',      v: '{{nombre}}' },
-  { label: '{{telefono}}',    v: '{{telefono}}' },
-  { label: '{{hora_actual}}', v: '{{hora_actual}}' },
-  { label: '{{dia_semana}}',  v: '{{dia_semana}}' },
+  { label: '{{nombre}}',      v: '{{nombre}}',      hint: 'Nombre del cliente en WhatsApp' },
+  { label: '{{telefono}}',    v: '{{telefono}}',    hint: 'Número de teléfono' },
+  { label: '{{saludo}}',      v: '{{saludo}}',      hint: 'Buenos días / tardes / noches (hora Bolivia)' },
+  { label: '{{hora_actual}}', v: '{{hora_actual}}', hint: 'Hora actual en Bolivia' },
+  { label: '{{dia_semana}}',  v: '{{dia_semana}}',  hint: 'Día de la semana' },
 ]
 
 const DEFAULT_PROMPT = `Eres un asistente de ventas de {{product_name}} por WhatsApp.

@@ -216,7 +216,9 @@ async function processMessage(params: {
       conversation.id,
       tenantId,
       activeFlow?.system_prompt ?? undefined,
-      (activeFlow as any)?.model ?? 'gpt-4o'
+      (activeFlow as any)?.model ?? 'gpt-4o',
+      (contact as any)?.name ?? null,   // nombre del contacto en WhatsApp
+      from                              // número de teléfono
     )
   }
 
@@ -291,6 +293,34 @@ async function processMessage(params: {
   }
 }
 
+// ─── Resolutor de variables del prompt ───────────────────────────────────────
+function resolvePromptVars(
+  prompt: string,
+  contactName: string | null,
+  contactPhone: string
+): string {
+  // Hora de Bolivia (UTC-4)
+  const now = new Date()
+  const boliviaTime = new Date(now.getTime() - 4 * 60 * 60 * 1000)
+  const hour = boliviaTime.getUTCHours()
+
+  const saludo = hour < 12 ? 'Buenos días' : hour < 19 ? 'Buenas tardes' : 'Buenas noches'
+
+  const dias = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado']
+  const diaSemana = dias[boliviaTime.getUTCDay()]
+
+  const horaActual = `${String(boliviaTime.getUTCHours()).padStart(2,'0')}:${String(boliviaTime.getUTCMinutes()).padStart(2,'0')}`
+
+  const nombre = contactName || contactPhone
+
+  return prompt
+    .replace(/\{\{nombre\}\}/g,      nombre)
+    .replace(/\{\{telefono\}\}/g,    contactPhone)
+    .replace(/\{\{hora_actual\}\}/g, horaActual)
+    .replace(/\{\{dia_semana\}\}/g,  diaSemana)
+    .replace(/\{\{saludo\}\}/g,      saludo)
+}
+
 // ─── Manejo de mensajes de texto ─────────────────────────────────────────────
 async function handleText(
   text: string,
@@ -298,17 +328,25 @@ async function handleText(
   tenantId: string,
   flowPrompt?: string,
   flowModel?: string,
+  contactName?: string | null,
+  contactPhone?: string,
 ): Promise<string> {
   const [history, tenant] = await Promise.all([getHistory(conversationId), getTenant(tenantId)])
 
+  // Resolver variables del prompt con datos reales del contacto
+  const resolvedPrompt = resolvePromptVars(
+    flowPrompt ?? DEFAULT_SYSTEM_PROMPT,
+    contactName ?? null,
+    contactPhone ?? ''
+  )
+
   const result = await runAgent({
-    contactPhone:    '',
+    contactPhone:    contactPhone ?? '',
     incomingMessage: text,
     history,
-    tenantPrompt:    flowPrompt ?? DEFAULT_SYSTEM_PROMPT,
+    tenantPrompt:    resolvedPrompt,
     productName:     tenant?.name,
     productPrice:    undefined,
-    // Pasar modelo y claves del tenant al agente
     model:       flowModel ?? 'gpt-4o',
     apiKey:      (tenant as any)?.openai_key    ?? process.env.OPENAI_API_KEY,
     deepseekKey: (tenant as any)?.deepseek_key  ?? process.env.DEEPSEEK_API_KEY,
