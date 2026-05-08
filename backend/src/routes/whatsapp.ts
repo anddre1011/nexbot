@@ -95,6 +95,13 @@ async function processMessage(params: {
 }) {
   const { from, type, raw, tenantId } = params
 
+  // Obtener credenciales Meta del tenant para todos los envíos
+  const tenantData = await getTenant(tenantId)
+  const creds = {
+    metaToken:     (tenantData as any)?.meta_token     || null,
+    phoneNumberId: (tenantData as any)?.phone_number_id || null,
+  }
+
   // 1. Upsert contacto
   const contact = await upsertContact(from, tenantId)
 
@@ -202,7 +209,7 @@ async function processMessage(params: {
   let replyText: string
 
   if (type === 'image') {
-    replyText = await handleImage(raw, contact.id, tenantId, conversation.id, from)
+    replyText = await handleImage(raw, contact.id, tenantId, conversation.id, from, creds)
   } else {
     replyText = await handleText(
       inboundContent ?? '',
@@ -245,11 +252,11 @@ async function processMessage(params: {
     for (const part of parts) {
       if (part.type === 'text') {
         if (part.content.trim()) {  // nunca enviar texto vacío
-          await sendTextMessage(from, part.content)
+          await sendTextMessage(from, part.content, creds)
           await saveOutbound(conversation.id, 'text', part.content)
         }
       } else if (part.content.trim()) {
-        await sendMediaByType(from, part.type, part.content)
+        await sendMediaByType(from, part.type, part.content, undefined, creds)
         await saveOutbound(conversation.id, part.type, `[${part.type}]`)
       }
     }
@@ -257,7 +264,7 @@ async function processMessage(params: {
     // Mensaje de texto simple — solo enviar si no está vacío
     const finalText = (parts[0]?.content || cleaned || replyText || '').trim()
     if (finalText) {
-      await sendTextMessage(from, finalText)
+      await sendTextMessage(from, finalText, creds)
       await saveOutbound(conversation.id, 'text', finalText)
     } else {
       console.warn('[webhook] Agent returned empty reply, skipping send')
@@ -316,7 +323,8 @@ async function handleImage(
   contactId: string,
   tenantId: string,
   conversationId: string,
-  contactPhone: string = ''
+  contactPhone: string = '',
+  creds?: { metaToken: string | null; phoneNumberId: string | null }
 ): Promise<string> {
   const image = raw.image as { id: string } | undefined
   if (!image?.id) return 'No pude procesar la imagen. ¿Puedes reenviarla?'
@@ -395,13 +403,13 @@ async function handleImage(
             .from('products').select('delivery_url, name').eq('id', conversion.product_id).single()
           if (product?.delivery_url) {
             const deliveryMsg = `🎉 ¡Acceso habilitado! Aquí está tu enlace:\n${product.delivery_url}`
-            await sendTextMessage(contactPhone, deliveryMsg)
+            await sendTextMessage(contactPhone, deliveryMsg, creds)
             await saveOutbound(conversationId, 'text', deliveryMsg)
           }
         }
 
         if (conversion.confirm_message?.trim()) {
-          await sendTextMessage(contactPhone, conversion.confirm_message)
+          await sendTextMessage(contactPhone, conversion.confirm_message, creds)
           await saveOutbound(conversationId, 'text', conversion.confirm_message)
         }
 
@@ -480,7 +488,7 @@ async function getHistory(conversationId: string): Promise<ChatMessage[]> {
 async function getTenant(tenantId: string) {
   const { data } = await supabase
     .from('tenants')
-    .select('name, openai_key, deepseek_key')
+    .select('name, openai_key, deepseek_key, meta_token, phone_number_id')
     .eq('id', tenantId)
     .single()
   return data
