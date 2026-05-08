@@ -28,6 +28,14 @@ app.get('/health', (_req, res) => {
   res.json({ status: 'ok', ts: new Date().toISOString() })
 })
 
+// Política de privacidad — requerida por Meta para publicar la app
+app.get('/privacy.html', (_req, res) => {
+  res.redirect(301, 'https://app.nexbot.pro/privacy.html')
+})
+app.get('/privacy', (_req, res) => {
+  res.redirect(301, 'https://app.nexbot.pro/privacy.html')
+})
+
 app.use('/api/auth',      authRoutes)
 app.use('/api/whatsapp',  whatsappRoutes)
 app.use('/api/contacts',  contactsRoutes)
