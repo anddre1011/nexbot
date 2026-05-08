@@ -28,6 +28,7 @@ export default function ConexionPage() {
     phone_number_id:      '',
     meta_token:           '',
     webhook_verify_token: '',
+    waba_id:              '',
   })
 
   // Estado de conexión
@@ -108,6 +109,7 @@ export default function ConexionPage() {
           phone_number_id:      form.phone_number_id.trim(),
           whatsapp_number:      form.whatsapp_number.trim(),
           webhook_verify_token: form.webhook_verify_token.trim() || null,
+          waba_id:              form.waba_id.trim() || null,
         }),
       })
 
@@ -226,6 +228,11 @@ export default function ConexionPage() {
           onChange={(v) => setForm((p) => ({ ...p, webhook_verify_token: v }))}
           placeholder="mi-token-secreto"
           hint="Opcional — cadena secreta para verificar el webhook" />
+
+        <DField label="WABA ID (WhatsApp Business Account ID)" value={form.waba_id}
+          onChange={(v) => setForm((p) => ({ ...p, waba_id: v }))}
+          placeholder="ID numérico del WABA (ej: 123456789012345)"
+          hint="Meta → tu App → WhatsApp → API Setup → arriba aparece el WABA ID. Necesario para suscribir webhooks." />
 
         {/* Error */}
         {error && (

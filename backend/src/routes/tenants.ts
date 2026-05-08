@@ -92,7 +92,7 @@ router.put('/settings', async (req, res) => {
 // ─── POST /api/tenants/connect-whatsapp ──────────────────────────────────────
 // Automatiza TODA la configuración de webhooks de Meta
 router.post('/connect-whatsapp', async (req, res) => {
-  const { meta_token, phone_number_id, whatsapp_number, webhook_verify_token } = req.body
+  const { meta_token, phone_number_id, whatsapp_number, webhook_verify_token, waba_id: userWabaId } = req.body
 
   if (!meta_token || !phone_number_id) {
     return res.status(400).json({ error: 'meta_token y phone_number_id son obligatorios' })
@@ -128,33 +128,38 @@ router.post('/connect-whatsapp', async (req, res) => {
     }
 
     // ── PASO 2: Obtener WABA ID ──
-    try {
-      const wabaRes = await fetch(
-        `https://graph.facebook.com/v20.0/${phone_number_id}?fields=account_id`,
-        { headers: { Authorization: `Bearer ${meta_token}` } }
-      )
-      const wabaData = await wabaRes.json()
-
-      if (wabaData.account_id) {
-        wabaId = wabaData.account_id
-        results.push({ step: 'get_waba_id', status: 'ok', detail: `WABA ID: ${wabaId}` })
-      } else {
-        // Intentar buscar por shared WABAs
-        const sharedRes = await fetch(
-          `https://graph.facebook.com/v20.0/${phone_number_id}/whatsapp_business_account`,
+    // Si el usuario proporcionó el WABA ID, usarlo directamente
+    if (userWabaId) {
+      wabaId = userWabaId
+      results.push({ step: 'get_waba_id', status: 'ok', detail: `WABA ID (manual): ${wabaId}` })
+    } else {
+      try {
+        const wabaRes = await fetch(
+          `https://graph.facebook.com/v20.0/${phone_number_id}?fields=account_id`,
           { headers: { Authorization: `Bearer ${meta_token}` } }
         )
-        const sharedData = await sharedRes.json()
-        wabaId = sharedData?.id ?? null
+        const wabaData = await wabaRes.json()
 
-        if (wabaId) {
-          results.push({ step: 'get_waba_id', status: 'ok', detail: `WABA ID (shared): ${wabaId}` })
+        if (wabaData.account_id) {
+          wabaId = wabaData.account_id
+          results.push({ step: 'get_waba_id', status: 'ok', detail: `WABA ID: ${wabaId}` })
         } else {
-          results.push({ step: 'get_waba_id', status: 'warning', detail: 'No se pudo obtener WABA ID automáticamente' })
+          const sharedRes = await fetch(
+            `https://graph.facebook.com/v20.0/${phone_number_id}/whatsapp_business_account`,
+            { headers: { Authorization: `Bearer ${meta_token}` } }
+          )
+          const sharedData = await sharedRes.json()
+          wabaId = sharedData?.id ?? null
+
+          if (wabaId) {
+            results.push({ step: 'get_waba_id', status: 'ok', detail: `WABA ID (shared): ${wabaId}` })
+          } else {
+            results.push({ step: 'get_waba_id', status: 'warning', detail: 'No se pudo obtener WABA ID. Ingrésalo manualmente en el campo WABA ID.' })
+          }
         }
+      } catch {
+        results.push({ step: 'get_waba_id', status: 'warning', detail: 'No se pudo obtener WABA ID. Ingrésalo manualmente.' })
       }
-    } catch {
-      results.push({ step: 'get_waba_id', status: 'warning', detail: 'No se pudo obtener WABA ID' })
     }
 
     // ── PASO 3: Suscribir App a webhooks (subscribed_apps) ──
