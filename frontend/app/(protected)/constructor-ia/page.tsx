@@ -125,16 +125,25 @@ export default function ConstructorIAPage() {
       {/* ── lista principal ── */}
       <div className={`flex flex-1 flex-col transition-all duration-300 ${panelOpen ? 'mr-[500px]' : ''}`}>
 
-        {/* Header */}
-        <div style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', background: '#0d0d14' }}
-          className="shrink-0 flex items-center justify-between px-6 py-4">
-          <div>
-            <h1 className="text-xl font-bold text-white">Constructor IA</h1>
-            <p className="text-sm text-gray-500 mt-0.5">{loading ? '…' : `${flows.length} flujos`}</p>
+        {/* ── Top bar ── */}
+        <div style={{ background: '#0d0d14', borderBottom: '1px solid rgba(255,255,255,0.05)' }}
+          className="shrink-0 flex items-center gap-3 px-6 py-3">
+          <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }}
+            className="flex flex-1 items-center gap-2.5 rounded-xl px-4 py-2.5">
+            <svg className="h-4 w-4 shrink-0 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            <input placeholder="Buscar flujos, bots o configuraciones..." className="flex-1 bg-transparent text-sm text-gray-400 placeholder-gray-600 outline-none" />
+          </div>
+          <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }}
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-gray-400">
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
           </div>
           <button onClick={() => setPanel('new')}
             style={{ background: 'linear-gradient(135deg, #7c3aed, #2563eb)' }}
-            className="flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-bold text-white hover:opacity-90 transition-all">
+            className="flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold text-white hover:opacity-90 transition-all shrink-0">
             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
             </svg>
@@ -143,9 +152,44 @@ export default function ConstructorIAPage() {
         </div>
 
         {/* Lista */}
-        <div className="flex-1 overflow-auto p-6">
+        <div className="flex-1 overflow-auto p-6 space-y-6">
+          {/* Header + stats */}
+          <div>
+            <h1 className="text-2xl font-bold text-white">Constructor IA</h1>
+            <p className="mt-1 text-sm text-gray-500">Gestiona y automatiza tus flujos de conversación con inteligencia artificial.</p>
+          </div>
+
+          <div className="grid grid-cols-4 gap-3">
+            {[
+              { label: 'Flujos Activos',      value: loading ? '–' : String(flows.filter(f => f.active).length),                               icon: '🤖', glow: 'rgba(124,58,237,0.15)' },
+              { label: 'Ejecuciones hoy',     value: loading ? '–' : flows.reduce((a, f) => a + (f.executions ?? 0), 0).toLocaleString(),      icon: '⚡', glow: 'rgba(37,99,235,0.15)'  },
+              { label: 'Conversión Promedio', value: '–',                                                                                        icon: '📈', glow: 'rgba(16,185,129,0.15)' },
+              { label: 'Tokens Usados',       value: '–',                                                                                        icon: '🔢', glow: 'rgba(245,158,11,0.15)'  },
+            ].map(s => (
+              <div key={s.label} style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', boxShadow: `0 4px 24px ${s.glow}` }}
+                className="rounded-2xl p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-500">{s.label}</span>
+                  <span className="text-lg">{s.icon}</span>
+                </div>
+                <p className={`text-2xl font-extrabold text-white ${loading ? 'animate-pulse' : ''}`}>{s.value}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Flows section */}
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-bold text-white">Tus Flujos</h2>
+              <div className="flex gap-1">
+                <button style={{ background: 'linear-gradient(135deg, rgba(124,58,237,0.2), rgba(37,99,235,0.12))', border: '1px solid rgba(124,58,237,0.3)' }}
+                  className="rounded-lg px-3 py-1.5 text-xs font-medium text-violet-300">Recientes</button>
+                <button className="rounded-lg px-3 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-300 transition-colors">Categorías</button>
+              </div>
+            </div>
+
           {loading ? (
-            <div className="flex items-center gap-3 pt-8 text-sm text-gray-600">
+            <div className="flex items-center gap-3 py-8 text-sm text-gray-600">
               <div style={{ background: 'linear-gradient(135deg, #7c3aed, #2563eb)' }} className="h-5 w-5 animate-spin rounded-full opacity-60" />
               Cargando flujos...
             </div>
@@ -169,9 +213,11 @@ export default function ConstructorIAPage() {
                   onClick={() => setPanel(flow)}>
 
                   {/* Icono */}
-                  <div style={{ background: flow.active ? 'linear-gradient(135deg, rgba(124,58,237,0.3), rgba(37,99,235,0.2))' : 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}
-                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-xl">
-                    {flow.type === 'ai' ? '🤖' : '💬'}
+                  <div style={{ background: flow.active ? 'rgba(124,58,237,0.18)' : 'rgba(255,255,255,0.04)', border: `1px solid ${flow.active ? 'rgba(124,58,237,0.3)' : 'rgba(255,255,255,0.08)'}` }}
+                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl">
+                    <svg className={`h-5 w-5 ${flow.active ? 'text-violet-400' : 'text-gray-500'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+                    </svg>
                   </div>
 
                   {/* Info */}
@@ -213,6 +259,25 @@ export default function ConstructorIAPage() {
               ))}
             </div>
           )}
+          </div>{/* end flows section */}
+
+          {/* Feature cards decorativas */}
+          <div className="grid grid-cols-2 gap-4">
+            <div style={{ background: 'linear-gradient(135deg, #1a0a2e 0%, #0d1a3a 100%)', border: '1px solid rgba(124,58,237,0.2)', minHeight: '140px' }}
+              className="relative rounded-2xl p-6 overflow-hidden flex flex-col justify-end cursor-pointer hover:opacity-90 transition-all">
+              <div className="absolute inset-0 opacity-10"
+                style={{ backgroundImage: 'radial-gradient(circle at 80% 20%, #7c3aed 0%, transparent 60%)' }} />
+              <p className="relative text-base font-bold text-white">Motor Cognitivo v2</p>
+              <p className="relative text-xs text-gray-400 mt-0.5">Optimizado para WhatsApp</p>
+            </div>
+            <div style={{ background: 'linear-gradient(135deg, #0a1a0d 0%, #0d2a18 100%)', border: '1px solid rgba(16,185,129,0.2)', minHeight: '140px' }}
+              className="relative rounded-2xl p-6 overflow-hidden flex flex-col justify-end cursor-pointer hover:opacity-90 transition-all">
+              <div className="absolute inset-0 opacity-10"
+                style={{ backgroundImage: 'radial-gradient(circle at 80% 20%, #10b981 0%, transparent 60%)' }} />
+              <p className="relative text-base font-bold text-white">Lógica de Conversión</p>
+              <p className="relative text-xs text-gray-400 mt-0.5">Modelos DeepSeek Integrados</p>
+            </div>
+          </div>
         </div>
       </div>
 

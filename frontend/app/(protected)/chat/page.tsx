@@ -170,34 +170,53 @@ export default function ChatPage() {
 
   // ─── render ──────────────────────────────────────────────────────────────────
   return (
-    <div className="flex h-[calc(100vh-0px)] overflow-hidden bg-[#0f0f0f] text-gray-100">
+    <div className="flex flex-col h-[calc(100vh-0px)] bg-[#0f0f0f] text-gray-100">
+
+      {/* ── Top bar ── */}
+      <div style={{ background: '#0d0d14', borderBottom: '1px solid rgba(255,255,255,0.05)' }}
+        className="shrink-0 flex items-center gap-3 px-4 py-3">
+        <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }}
+          className="flex flex-1 items-center gap-2.5 rounded-xl px-4 py-2.5">
+          <svg className="h-4 w-4 shrink-0 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
+          <input
+            value={search} onChange={(e) => setSearch(e.target.value)}
+            placeholder="Buscar conversación..."
+            className="flex-1 bg-transparent text-sm text-gray-400 placeholder-gray-600 outline-none" />
+        </div>
+        <button onClick={() => setShowFilters(!showFilters)}
+          style={{ background: showFilters ? 'rgba(124,58,237,0.2)' : 'rgba(255,255,255,0.04)', border: `1px solid ${showFilters ? 'rgba(124,58,237,0.4)' : 'rgba(255,255,255,0.07)'}` }}
+          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition-colors ${showFilters ? 'text-violet-400' : 'text-gray-400 hover:text-white'}`}>
+          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+          </svg>
+        </button>
+        <button onClick={fetchConversations}
+          style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }}
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-gray-400 hover:text-white transition-colors">
+          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+        </button>
+        <button
+          style={{ background: 'linear-gradient(135deg, #7c3aed, #2563eb)' }}
+          className="flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold text-white hover:opacity-90 transition-all shrink-0">
+          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+          </svg>
+          Crear Flujo
+        </button>
+      </div>
+
+      {/* ── 3 columnas ── */}
+      <div className="flex flex-1 overflow-hidden">
 
       {/* ══ columna izquierda: lista ══ */}
       <aside className="flex w-80 shrink-0 flex-col border-r border-white/5 bg-[#141414]">
-        {/* buscador */}
-        <div className="p-3">
-          <div className="flex items-center gap-2 mb-2">
-            <div className="flex items-center gap-2 rounded-lg bg-white/5 px-3 py-2 flex-1">
-              <svg className="h-4 w-4 shrink-0 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-              </svg>
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Buscar conversación..."
-                className="w-full bg-transparent text-sm text-gray-200 placeholder-gray-500 outline-none"
-              />
-            </div>
-            <button onClick={() => setShowFilters(!showFilters)}
-              className={`shrink-0 rounded-lg px-2.5 py-2 text-xs font-medium transition-colors ${showFilters ? 'bg-violet-600 text-white' : 'bg-white/5 text-gray-400 hover:text-white'}`}>
-              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
-              </svg>
-            </button>
-          </div>
-
-          {/* Filtros avanzados */}
-          {showFilters && (
+        {/* Filtros avanzados (desplegable desde top bar) */}
+        {showFilters && (
+          <div className="px-3 pt-3">
             <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}
               className="rounded-xl p-3 mb-2 space-y-2">
               <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">Filtrar conversas</p>
@@ -222,8 +241,8 @@ export default function ChatPage() {
                 </button>
               </label>
             </div>
-          )}
-        </div>
+          </div>
+        )}
 
         {/* tabs */}
         <div className="flex border-b border-white/5 px-3">
@@ -300,11 +319,26 @@ export default function ChatPage() {
       {/* ══ columna central: chat ══ */}
       <div className="flex flex-1 flex-col">
         {!selected ? (
-          <div className="flex flex-1 flex-col items-center justify-center gap-3 text-gray-600">
-            <svg className="h-12 w-12 opacity-20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
-            </svg>
-            <p className="text-sm">Selecciona una conversación</p>
+          <div className="flex flex-1 flex-col items-center justify-center gap-4 px-8 text-center">
+            <div style={{ background: 'rgba(124,58,237,0.1)', border: '1px solid rgba(124,58,237,0.2)' }}
+              className="flex h-20 w-20 items-center justify-center rounded-3xl">
+              <svg className="h-10 w-10 text-violet-400 opacity-80" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+              </svg>
+            </div>
+            <div>
+              <p className="text-base font-semibold text-gray-300">Selecciona una conversación</p>
+              <p className="mt-1.5 text-xs text-gray-600 leading-relaxed max-w-[220px]">
+                Explora tus chats activos o inicia una nueva automatización para conectar con tus clientes de inmediato.
+              </p>
+            </div>
+            <button style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}
+              className="flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-medium text-gray-300 hover:bg-white/10 transition-colors">
+              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+              </svg>
+              Nuevo Chat
+            </button>
           </div>
         ) : (
           <>
@@ -402,44 +436,73 @@ export default function ChatPage() {
       </div>
 
       {/* ══ columna derecha: info del contacto ══ */}
-      <aside className="flex w-64 shrink-0 flex-col gap-4 border-l border-white/5 bg-[#141414] p-4">
+      <aside className="flex w-64 shrink-0 flex-col gap-4 border-l border-white/5 bg-[#141414] p-4 overflow-y-auto">
         {!selected ? (
-          <p className="text-xs text-gray-600">Selecciona una conversación</p>
+          <p className="text-xs text-gray-600 pt-4 text-center">Selecciona una conversación</p>
         ) : (
           <>
             {/* avatar + nombre */}
             <div className="flex flex-col items-center gap-2 pt-2 text-center">
-              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-600 text-lg font-bold text-white">
+              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-violet-600/30 border-2 border-violet-500/30 text-lg font-bold text-white">
                 {initials(selected.contact_name, selected.contact_phone)}
               </div>
-              <p className="font-semibold text-gray-100">
-                {selected.contact_name ?? 'Sin nombre'}
-              </p>
-              <p className="text-xs text-gray-500">{selected.contact_phone}</p>
+              <div>
+                <p className="font-semibold text-gray-100">{selected.contact_phone}</p>
+                <div className="flex items-center justify-center gap-1 mt-0.5">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                  <p className="text-[10px] text-emerald-400">Activo ahora</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Acciones rápidas */}
+            <div>
+              <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-gray-500">Acciones Rápidas</p>
+              <div className="flex gap-2 justify-center">
+                {[
+                  { icon: 'M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z', label: 'Guardar' },
+                  { icon: 'M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z', label: 'Etiquetar' },
+                  { icon: 'M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636', label: 'Bloquear' },
+                ].map(a => (
+                  <button key={a.label} style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }}
+                    className="flex flex-col items-center gap-1 rounded-xl px-3 py-2.5 text-gray-400 hover:text-white hover:bg-white/8 transition-colors">
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d={a.icon} />
+                    </svg>
+                    <span className="text-[9px]">{a.label}</span>
+                  </button>
+                ))}
+              </div>
             </div>
 
             <hr className="border-white/5" />
 
-            {/* datos */}
-            <div className="flex flex-col gap-3 text-sm">
-              <InfoRow label="Estado">
-                <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_COLORS[selected.status] ?? STATUS_COLORS.open}`}>
-                  {selected.status}
-                </span>
-              </InfoRow>
-
-              <InfoRow label="Campaña">
-                <span className="text-xs text-gray-400">
-                  {selected.campaign_id ? '🎯 Vinculada' : 'Sin campaña'}
-                </span>
-              </InfoRow>
+            {/* Información */}
+            <div>
+              <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-gray-500">Información</p>
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-gray-500">Canal</span>
+                  <span className="text-[10px] font-medium text-gray-300">WhatsApp</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-gray-500">Estado</span>
+                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${STATUS_COLORS[selected.status] ?? STATUS_COLORS.open}`}>
+                    {selected.status}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-gray-500">Campaña</span>
+                  <span className="text-[10px] text-gray-400">{selected.campaign_id ? '🎯 Vinculada' : 'Ninguna'}</span>
+                </div>
+              </div>
             </div>
 
             <hr className="border-white/5" />
 
             {/* kanban */}
             <div>
-              <p className="mb-2 text-xs font-medium text-gray-500 uppercase tracking-wide">Estado Kanban</p>
+              <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-gray-500">Estado Kanban</p>
               <div className="flex flex-col gap-1.5">
                 {(['bot', 'human', 'open', 'closed'] as const).map((s) => (
                   <button
@@ -477,15 +540,7 @@ export default function ChatPage() {
           </>
         )}
       </aside>
-    </div>
-  )
-}
-
-function InfoRow({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex items-center justify-between gap-2">
-      <span className="text-xs text-gray-500">{label}</span>
-      {children}
+      </div>{/* end 3 columnas */}
     </div>
   )
 }

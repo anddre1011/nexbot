@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
+import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { apiFetch } from '@/lib/api'
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar } from 'recharts'
@@ -84,21 +85,39 @@ export default function DashboardPage() {
         ))}
       </div>
 
-      <div className="p-6 space-y-6 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 0px)' }}>
+      <div className="flex flex-col h-[calc(100vh-0px)]">
+    {/* ── Top bar ── */}
+    <div style={{ background: '#0d0d14', borderBottom: '1px solid rgba(255,255,255,0.05)' }}
+      className="shrink-0 flex items-center gap-3 px-6 py-3">
+      <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }}
+        className="flex flex-1 items-center gap-2.5 rounded-xl px-4 py-2.5">
+        <svg className="h-4 w-4 shrink-0 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+        </svg>
+        <input placeholder="Buscar métricas o bots..." className="flex-1 bg-transparent text-sm text-gray-400 placeholder-gray-600 outline-none" />
+      </div>
+      <button onClick={fetchData} disabled={loading}
+        style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }}
+        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-gray-400 hover:text-white disabled:opacity-40 transition-colors">
+        <svg className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+        </svg>
+      </button>
+      <Link href="/constructor-ia"
+        style={{ background: 'linear-gradient(135deg, #7c3aed, #2563eb)' }}
+        className="flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold text-white hover:opacity-90 transition-all shrink-0">
+        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+        </svg>
+        Crear Flujo
+      </Link>
+    </div>
+
+    <div className="flex-1 overflow-auto p-6 space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-white">Dashboard</h1>
-            <p className="mt-1 text-sm text-gray-500">Sigue tus métricas y gestiona tu atención</p>
-          </div>
-          <button onClick={fetchData} disabled={loading}
-            style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}
-            className="flex items-center gap-2 rounded-xl px-4 py-2 text-xs text-gray-400 hover:bg-white/10 disabled:opacity-40">
-            <svg className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-            </svg>
-            Actualizar
-          </button>
+        <div>
+          <h1 className="text-2xl font-bold text-white">Dashboard</h1>
+          <p className="mt-1 text-sm text-gray-500">Sigue tus métricas y gestiona tu atención en tiempo real.</p>
         </div>
 
         {/* KPI Cards */}
@@ -294,6 +313,7 @@ export default function DashboardPage() {
           )}
         </div>
       </div>
+    </div>
     </>
   )
 }

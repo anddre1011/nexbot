@@ -109,8 +109,9 @@ export default function LoginPage() {
         </div>
 
         {/* Footer */}
-        <p className="mt-6 text-center text-xs text-gray-600">
-          Al continuar aceptas nuestros Términos de Servicio
+        <p className="mt-6 text-center text-xs text-gray-600 leading-relaxed">
+          Al continuar aceptas nuestros Términos de Servicio y nuestra Política de Privacidad.
+          NexBot utiliza IA avanzada para optimizar tus conversaciones de ventas.
         </p>
       </div>
     </main>
