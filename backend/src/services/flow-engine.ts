@@ -5,6 +5,7 @@ import {
   sendVideoMessage,
   sendAudioMessage,
   sendDocumentMessage,
+  type TenantCredentials,
 } from './whatsapp'
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
@@ -48,6 +49,7 @@ export async function executeWelcomeFlow(
   contactPhone: string,
   conversationId: string,
   tenantId: string,
+  creds?: TenantCredentials,
 ): Promise<void> {
   const { data: steps } = await supabase
     .from('flow_steps')
@@ -63,35 +65,35 @@ export async function executeWelcomeFlow(
         case 'text':
           if (step.content) {
             const resolvedText = await resolveMediaVars(step.content, tenantId)
-            await sendTextMessage(contactPhone, resolvedText)
+            await sendTextMessage(contactPhone, resolvedText, creds)
             await saveOutbound(conversationId, 'text', resolvedText)
           }
           break
 
         case 'image':
           if (step.media_url) {
-            await sendImageMessage(contactPhone, step.media_url, step.content ?? undefined)
+            await sendImageMessage(contactPhone, step.media_url, step.content ?? undefined, creds)
             await saveOutbound(conversationId, 'image', step.content ?? '[imagen]')
           }
           break
 
         case 'video':
           if (step.media_url) {
-            await sendVideoMessage(contactPhone, step.media_url, step.content ?? undefined)
+            await sendVideoMessage(contactPhone, step.media_url, step.content ?? undefined, creds)
             await saveOutbound(conversationId, 'video', step.content ?? '[video]')
           }
           break
 
         case 'audio':
           if (step.media_url) {
-            await sendAudioMessage(contactPhone, step.media_url)
+            await sendAudioMessage(contactPhone, step.media_url, creds)
             await saveOutbound(conversationId, 'audio', '[audio]')
           }
           break
 
         case 'file':
           if (step.media_url) {
-            await sendDocumentMessage(contactPhone, step.media_url, step.content ?? 'archivo')
+            await sendDocumentMessage(contactPhone, step.media_url, step.content ?? 'archivo', creds)
             await saveOutbound(conversationId, 'document', step.content ?? '[archivo]')
           }
           break
@@ -131,6 +133,7 @@ export async function executeConversionFlow(
   contactPhone: string,
   conversationId: string,
   tenantId: string,
+  creds?: TenantCredentials,
 ): Promise<boolean> {
   // Buscar configuración de conversión
   const { data: conversion } = await supabase
@@ -152,7 +155,7 @@ export async function executeConversionFlow(
   try {
     // 1. Enviar mensaje de confirmación
     if (conv.confirm_message) {
-      await sendTextMessage(contactPhone, conv.confirm_message)
+      await sendTextMessage(contactPhone, conv.confirm_message, creds)
       await saveOutbound(conversationId, 'text', conv.confirm_message)
     }
 
@@ -169,7 +172,7 @@ export async function executeConversionFlow(
 
       // 3. Entregar producto automáticamente si tiene delivery_url
       if (conv.delivery_enabled && conv.products.delivery_url) {
-        await sendTextMessage(contactPhone, conv.products.delivery_url)
+        await sendTextMessage(contactPhone, conv.products.delivery_url, creds)
         await saveOutbound(conversationId, 'text', conv.products.delivery_url)
       }
     }

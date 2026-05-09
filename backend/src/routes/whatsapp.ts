@@ -56,6 +56,7 @@ router.post('/webhook', async (req, res) => {
       .eq('active', true)
       .maybeSingle()
     tenantId = data?.id
+    console.log(`[webhook] Tenant lookup: phone_number_id="${phoneNumberId}" → tenant="${tenantId ?? 'NOT FOUND'}"`)
   }
 
   if (!tenantId) {
@@ -160,7 +161,7 @@ async function processMessage(params: {
 
         // Ejecutar flujo de bienvenida del keyword inmediatamente
         console.log(`[webhook] Executing keyword flow steps for "${(matched.flows as any)?.name}"`)
-        await executeWelcomeFlow(matched.flow_id, from, conversation.id, tenantId)
+        await executeWelcomeFlow(matched.flow_id, from, conversation.id, tenantId, creds)
         return  // El flujo inicial ya respondió — el AI responderá en el próximo mensaje
       }
     }
@@ -185,7 +186,7 @@ async function processMessage(params: {
       .eq('id', conversation.id)
 
     // Ejecutar secuencia de bienvenida
-    await executeWelcomeFlow(activeFlow.id, from, conversation.id, tenantId)
+    await executeWelcomeFlow(activeFlow.id, from, conversation.id, tenantId, creds)
 
     // Incrementar ejecuciones del flujo
     try {
@@ -236,6 +237,7 @@ async function processMessage(params: {
         from,
         conversation.id,
         tenantId,
+        creds,
       )
 
       if (success) {
