@@ -1,5 +1,5 @@
 import { supabase } from './supabase'
-import { sendTextMessage, sendMediaByType } from './whatsapp'
+import { sendTextMessage, sendMediaByType, type TenantCredentials } from './whatsapp'
 import { getInactivityRules, resolveMediaVars } from './flow-engine'
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
@@ -14,12 +14,45 @@ const activeTimers = new Map<string, ConversationTimers>()
 // Ventana de 24h de WhatsApp (en ms)
 const WHATSAPP_WINDOW_MS = 24 * 60 * 60 * 1000
 
+// ─── Verificar si estamos dentro del horario de operación ─────────────────────
+async function isWithinBusinessHours(tenantId: string): Promise<boolean> {
+  try {
+    const { data: tenant } = await supabase
+      .from('tenants')
+      .select('business_hours')
+      .eq('id', tenantId)
+      .single()
+
+    if (!tenant?.business_hours) return true // Sin config = siempre permitido
+
+    const hours = tenant.business_hours as Record<string, { start: string; end: string; enabled: boolean }>
+    const now = new Date()
+    // Usar timezone Bolivia (UTC-4)
+    const boliviaTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/La_Paz' }))
+    const dayNames = ['domingo', 'lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado']
+    const dayConfig = hours[dayNames[boliviaTime.getDay()]]
+
+    if (!dayConfig || !dayConfig.enabled) return false // Día deshabilitado
+
+    const currentMinutes = boliviaTime.getHours() * 60 + boliviaTime.getMinutes()
+    const [startH, startM] = dayConfig.start.split(':').map(Number)
+    const [endH, endM] = dayConfig.end.split(':').map(Number)
+    const startMinutes = startH * 60 + startM
+    const endMinutes = endH * 60 + endM
+
+    return currentMinutes >= startMinutes && currentMinutes <= endMinutes
+  } catch {
+    return true // Error = permitir
+  }
+}
+
 // ─── Iniciar timers de inactividad basados en flujo ───────────────────────────
 export async function resetInactivityTimers(
   conversationId: string,
   contactPhone: string,
   flowId?: string,
   tenantId?: string,
+  creds?: TenantCredentials,
 ) {
   // Limpiar timers previos
   clearInactivityTimers(conversationId)
@@ -29,7 +62,7 @@ export async function resetInactivityTimers(
   // Si no hay flujo, usar comportamiento por defecto
   if (!flowId || !tenantId) {
     const defaultFollowUp = setTimeout(async () => {
-      await sendDefaultFollowUp(conversationId, contactPhone)
+      await sendDefaultFollowUp(conversationId, contactPhone, creds)
     }, parseInt(process.env.FOLLOWUP_DELAY_MS ?? '3600000'))
 
     const defaultClose = setTimeout(async () => {
@@ -49,7 +82,7 @@ export async function resetInactivityTimers(
   if (rules.length === 0) {
     // Sin reglas: usar defaults
     const defaultFollowUp = setTimeout(async () => {
-      await sendDefaultFollowUp(conversationId, contactPhone)
+      await sendDefaultFollowUp(conversationId, contactPhone, creds)
     }, parseInt(process.env.FOLLOWUP_DELAY_MS ?? '3600000'))
 
     activeTimers.set(conversationId, {
@@ -84,11 +117,17 @@ export async function resetInactivityTimers(
       if (!conv || conv.status === 'closed') return
 
       try {
+        // Verificar horario de operación antes de enviar
+        if (tenantId && !(await isWithinBusinessHours(tenantId))) {
+          console.log(`[inactivity] Outside business hours for conv ${conversationId}, skipping rule ${rule.position}`)
+          return
+        }
+
         switch (rule.type) {
           case 'text':
             if (rule.content) {
               const resolved = await resolveMediaVars(rule.content, tenantId)
-              await sendTextMessage(contactPhone, resolved)
+              await sendTextMessage(contactPhone, resolved, creds)
               await saveOutbound(conversationId, 'text', resolved)
             }
             break
@@ -96,7 +135,7 @@ export async function resetInactivityTimers(
           case 'image':
           case 'video':
             if (rule.media_url) {
-              await sendMediaByType(contactPhone, rule.type, rule.media_url, rule.content ?? undefined)
+              await sendMediaByType(contactPhone, rule.type, rule.media_url, rule.content ?? undefined, creds)
               await saveOutbound(conversationId, rule.type, rule.content ?? `[${rule.type}]`)
             }
             break
@@ -159,10 +198,10 @@ export function clearInactivityTimers(conversationId: string) {
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-async function sendDefaultFollowUp(conversationId: string, contactPhone: string) {
+async function sendDefaultFollowUp(conversationId: string, contactPhone: string, creds?: TenantCredentials) {
   const msg = '¡Hola! Solo quería saber si tienes alguna duda sobre nuestro producto. Estoy aquí para ayudarte. 😊'
   try {
-    await sendTextMessage(contactPhone, msg)
+    await sendTextMessage(contactPhone, msg, creds)
     await saveOutbound(conversationId, 'text', msg)
   } catch (err) {
     console.error(`[inactivity] follow-up error for conv ${conversationId}:`, err)

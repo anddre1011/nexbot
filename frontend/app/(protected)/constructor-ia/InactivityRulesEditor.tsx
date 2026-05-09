@@ -8,14 +8,19 @@ export interface InactRule {
   content: string | null; media_url: string | null
 }
 
-const DELAY_OPTIONS = [
-  { ms: 3600000,   label: '1 hora' },
-  { ms: 10800000,  label: '3 horas' },
-  { ms: 21600000,  label: '6 horas' },
-  { ms: 43200000,  label: '12 horas' },
-  { ms: 86400000,  label: '24 horas' },
-  { ms: 172800000, label: '48 horas' },
-]
+// Opciones de tiempo con minutos y horas
+const MINUTE_OPTIONS = [5, 10, 15, 30, 45, 60]
+const HOUR_OPTIONS = [1, 2, 3, 4, 5, 6, 8, 12, 24, 48]
+
+function msToDisplay(ms: number): { value: number; unit: 'minutes' | 'hours' } {
+  const hours = ms / 3600000
+  if (hours >= 1 && Number.isInteger(hours)) return { value: hours, unit: 'hours' }
+  return { value: ms / 60000, unit: 'minutes' }
+}
+
+function displayToMs(value: number, unit: 'minutes' | 'hours'): number {
+  return unit === 'hours' ? value * 3600000 : value * 60000
+}
 
 const RULE_TYPES = [
   { type: 'text',      icon: '💬', label: 'Texto' },
@@ -35,7 +40,7 @@ export default function InactivityRulesEditor({ rules, onChange }: {
   function addRule() {
     onChange([...rules, {
       id: uid(), position: rules.length,
-      delay_ms: 10800000, type: 'text', content: '', media_url: null,
+      delay_ms: 3600000, type: 'text', content: '', media_url: null,
     }])
   }
 
@@ -67,7 +72,7 @@ export default function InactivityRulesEditor({ rules, onChange }: {
     <div>
       <div className="mb-3">
         <label className="block text-xs font-bold uppercase tracking-widest text-gray-500">Mensajes de inactividad</label>
-        <p className="text-[10px] text-gray-600 mt-0.5">Se envían cuando el contacto no responde</p>
+        <p className="text-[10px] text-gray-600 mt-0.5">Se envían cuando el contacto no responde después del tiempo configurado</p>
         <div style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)' }}
           className="mt-2 rounded-lg px-3 py-2 text-[10px] text-amber-400">
           ⚠️ WhatsApp solo permite mensajes libres dentro de las 24h desde el último mensaje del cliente
@@ -75,21 +80,39 @@ export default function InactivityRulesEditor({ rules, onChange }: {
       </div>
 
       <div className="flex flex-col gap-2 mb-2">
-        {rules.map((rule, idx) => (
+        {rules.map((rule, idx) => {
+          const { value: delayVal, unit: delayUnit } = msToDisplay(rule.delay_ms)
+          return (
           <div key={rule.id}
             style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}
             className="rounded-xl p-3">
 
             {/* Fila de controles */}
             <div className="flex items-center gap-2 mb-2.5 flex-wrap">
-              <select value={rule.delay_ms}
-                onChange={e => update(idx, { delay_ms: Number(e.target.value) })}
-                style={{ background: 'rgba(124,58,237,0.15)', border: '1px solid rgba(124,58,237,0.3)' }}
-                className="rounded-lg px-2 py-1.5 text-xs text-violet-300 outline-none">
-                {DELAY_OPTIONS.map(({ ms, label }) => (
-                  <option key={ms} value={ms} className="bg-[#1a1a1a]">{label}</option>
-                ))}
-              </select>
+              {/* Valor numérico + unidad */}
+              <div className="flex items-center gap-1.5">
+                <select
+                  value={delayVal}
+                  onChange={e => update(idx, { delay_ms: displayToMs(Number(e.target.value), delayUnit) })}
+                  style={{ background: 'rgba(124,58,237,0.15)', border: '1px solid rgba(124,58,237,0.3)' }}
+                  className="rounded-lg px-2 py-1.5 text-xs text-violet-300 outline-none min-w-[52px]">
+                  {(delayUnit === 'minutes' ? MINUTE_OPTIONS : HOUR_OPTIONS).map(v => (
+                    <option key={v} value={v} className="bg-[#1a1a1a]">{v}</option>
+                  ))}
+                </select>
+                <select
+                  value={delayUnit}
+                  onChange={e => {
+                    const newUnit = e.target.value as 'minutes' | 'hours'
+                    const defaultVal = newUnit === 'minutes' ? 30 : 1
+                    update(idx, { delay_ms: displayToMs(defaultVal, newUnit) })
+                  }}
+                  style={{ background: 'rgba(37,99,235,0.15)', border: '1px solid rgba(37,99,235,0.3)' }}
+                  className="rounded-lg px-2 py-1.5 text-xs text-blue-300 outline-none">
+                  <option value="minutes" className="bg-[#1a1a1a]">Minutos</option>
+                  <option value="hours" className="bg-[#1a1a1a]">Horas</option>
+                </select>
+              </div>
 
               <select value={rule.type}
                 onChange={e => update(idx, { type: e.target.value as InactRule['type'], media_url: null })}
@@ -153,7 +176,7 @@ export default function InactivityRulesEditor({ rules, onChange }: {
               </div>
             )}
           </div>
-        ))}
+        )})}
       </div>
 
       <button onClick={addRule}

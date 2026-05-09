@@ -171,7 +171,7 @@ async function processMessage(params: {
   const activeFlow: FlowInfo | null = keywordFlow ?? await getActiveFlow(tenantId)
 
   // 6c. Reiniciar temporizadores de inactividad (con reglas del flujo)
-  resetInactivityTimers(conversation.id, from, activeFlow?.id, tenantId)
+  resetInactivityTimers(conversation.id, from, activeFlow?.id, tenantId, creds)
 
   // ═══ 7. LÓGICA DE FLUJO ═══════════════════════════════════════════════════
 

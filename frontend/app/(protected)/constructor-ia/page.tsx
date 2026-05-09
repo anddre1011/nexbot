@@ -388,25 +388,28 @@ function FlowPanel({ flow, medias, onClose, onSaved }: {
           {/* Modelo */}
           <div>
             <label className="mb-2 block text-xs font-bold uppercase tracking-widest text-gray-500">Modelo IA</label>
-            <div className="flex flex-col gap-2">
-              {MODELS.map(({ id, label, desc }) => (
-                <button key={id} onClick={() => set('model', id)}
-                  style={form.model === id
-                    ? { background: 'linear-gradient(135deg, rgba(124,58,237,0.2), rgba(37,99,235,0.15))', border: '1px solid rgba(124,58,237,0.45)' }
-                    : { background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}
-                  className={`flex items-center justify-between rounded-xl px-4 py-3 text-left transition-all ${form.model === id ? 'text-violet-200' : 'text-gray-400 hover:bg-white/5'}`}>
-                  <div>
-                    <p className="text-sm font-semibold">{label}</p>
-                    <p className="text-xs opacity-60">{desc}</p>
-                  </div>
-                  {form.model === id && (
-                    <svg className="h-4 w-4 text-violet-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                    </svg>
-                  )}
-                </button>
-              ))}
+            <div className="relative">
+              <select value={form.model} onChange={(e) => set('model', e.target.value as ModelId)}
+                style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.10)', appearance: 'none' }}
+                className="w-full rounded-xl px-4 py-3 pr-10 text-sm text-white outline-none transition-all focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20 cursor-pointer">
+                {MODELS.map(({ id, label, desc, badge }) => (
+                  <option key={id} value={id} className="bg-[#1a1a24] text-white">
+                    {badge ? `${badge} — ` : ''}{label} — {desc}
+                  </option>
+                ))}
+              </select>
+              {/* Chevron */}
+              <svg className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+              </svg>
             </div>
+            {/* Badge del modelo seleccionado */}
+            {MODELS.find(m => m.id === form.model)?.badge && (
+              <span style={{ background: 'rgba(124,58,237,0.15)', border: '1px solid rgba(124,58,237,0.3)' }}
+                className="mt-2 inline-block rounded-full px-2.5 py-0.5 text-[10px] font-bold text-violet-300">
+                {MODELS.find(m => m.id === form.model)?.badge}
+              </span>
+            )}
           </div>
 
           {/* Prompt editor */}

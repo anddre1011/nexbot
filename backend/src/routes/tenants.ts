@@ -283,4 +283,34 @@ router.post('/connect-whatsapp', async (req, res) => {
   }
 })
 
+// ─── GET /api/tenants/business-hours ─────────────────────────────────────────
+router.get('/business-hours', async (_req, res) => {
+  const { data, error } = await supabase
+    .from('tenants')
+    .select('business_hours')
+    .eq('user_id', res.locals.user.id)
+    .single()
+
+  if (error) {
+    if (error.code === 'PGRST116') { res.json(null); return }
+    res.status(500).json({ error: error.message }); return
+  }
+
+  res.json(data?.business_hours ?? null)
+})
+
+// ─── PUT /api/tenants/business-hours ─────────────────────────────────────────
+router.put('/business-hours', async (req, res) => {
+  const { business_hours } = req.body
+
+  const { error } = await supabase
+    .from('tenants')
+    .update({ business_hours })
+    .eq('user_id', res.locals.user.id)
+
+  if (error) { res.status(500).json({ error: error.message }); return }
+
+  res.json({ ok: true })
+})
+
 export default router

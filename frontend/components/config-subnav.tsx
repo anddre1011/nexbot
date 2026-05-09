@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation'
 
 const sections = [
   { href: '/configuracion/conexion',      label: 'Conexión',       icon: '🔌' },
+  { href: '/configuracion/horarios',      label: 'Horarios',       icon: '🕐' },
   { href: '/configuracion/medias',         label: 'Medias',         icon: '🖼️' },
   { href: '/configuracion/compania',       label: 'Compañía',       icon: '🏢' },
   { href: '/configuracion/integraciones',  label: 'Integraciones',  icon: '⚙️' },
