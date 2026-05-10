@@ -48,14 +48,20 @@ export default function NotificationsBell() {
 
   useEffect(() => { fetchNotifs() }, [fetchNotifs])
 
-  // Tiempo real via Supabase
+  // Tiempo real via Supabase (nombre único por montaje para evitar conflicto)
   useEffect(() => {
     const supabase = createClient()
-    const channel = supabase
-      .channel('notifications-realtime')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications' }, () => fetchNotifs())
-      .subscribe()
-    return () => { supabase.removeChannel(channel) }
+    const channelName = `notif-${Math.random().toString(36).slice(2)}`
+    let channel: ReturnType<typeof supabase.channel> | null = null
+    try {
+      channel = supabase
+        .channel(channelName)
+        .on('postgres_changes' as any, { event: 'INSERT', schema: 'public', table: 'notifications' }, () => fetchNotifs())
+        .subscribe()
+    } catch (err) {
+      console.warn('[notif] realtime setup failed:', err)
+    }
+    return () => { if (channel) supabase.removeChannel(channel) }
   }, [fetchNotifs])
 
   // Cerrar al hacer clic fuera
