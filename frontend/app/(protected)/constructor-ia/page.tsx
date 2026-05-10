@@ -159,7 +159,7 @@ export default function ConstructorIAPage() {
             <p className="mt-1 text-sm text-gray-500">Gestiona y automatiza tus flujos de conversación con inteligencia artificial.</p>
           </div>
 
-          <div className="grid grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {[
               { label: 'Flujos Activos',      value: loading ? '–' : String(flows.filter(f => f.active).length),                               icon: '🤖', glow: 'rgba(124,58,237,0.15)' },
               { label: 'Ejecuciones hoy',     value: loading ? '–' : flows.reduce((a, f) => a + (f.executions ?? 0), 0).toLocaleString(),      icon: '⚡', glow: 'rgba(37,99,235,0.15)'  },

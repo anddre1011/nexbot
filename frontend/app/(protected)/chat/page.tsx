@@ -170,7 +170,7 @@ export default function ChatPage() {
 
   // ─── render ──────────────────────────────────────────────────────────────────
   return (
-    <div className="flex flex-col h-[calc(100vh-0px)] bg-[#0f0f0f] text-gray-100">
+    <div className="flex flex-col h-[100dvh] bg-[#0f0f0f] text-gray-100">
 
       {/* ── Top bar ── */}
       <div style={{ background: '#0d0d14', borderBottom: '1px solid rgba(255,255,255,0.05)' }}
@@ -213,7 +213,7 @@ export default function ChatPage() {
       <div className="flex flex-1 overflow-hidden">
 
       {/* ══ columna izquierda: lista ══ */}
-      <aside className="flex w-80 shrink-0 flex-col border-r border-white/5 bg-[#141414]">
+      <aside className={`flex shrink-0 flex-col border-r border-white/5 bg-[#141414] w-full md:w-80 ${selected ? 'hidden md:flex' : 'flex'}`}>
         {/* Filtros avanzados (desplegable desde top bar) */}
         {showFilters && (
           <div className="px-3 pt-3">
@@ -317,7 +317,7 @@ export default function ChatPage() {
       </aside>
 
       {/* ══ columna central: chat ══ */}
-      <div className="flex flex-1 flex-col">
+      <div className={`flex flex-1 flex-col min-w-0 ${selected ? 'flex' : 'hidden md:flex'}`}>
         {!selected ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-4 px-8 text-center">
             <div style={{ background: 'rgba(124,58,237,0.1)', border: '1px solid rgba(124,58,237,0.2)' }}
@@ -344,6 +344,14 @@ export default function ChatPage() {
           <>
             {/* header */}
             <div className="flex items-center gap-3 border-b border-white/5 bg-[#141414] px-4 py-3">
+              <button
+                onClick={() => setSelectedId(null)}
+                className="md:hidden text-gray-400 hover:text-white transition-colors shrink-0"
+              >
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                </svg>
+              </button>
               <div className="flex h-9 w-9 items-center justify-center rounded-full bg-emerald-600 text-xs font-bold">
                 {initials(selected.contact_name, selected.contact_phone)}
               </div>
@@ -436,7 +444,7 @@ export default function ChatPage() {
       </div>
 
       {/* ══ columna derecha: info del contacto ══ */}
-      <aside className="flex w-64 shrink-0 flex-col gap-4 border-l border-white/5 bg-[#141414] p-4 overflow-y-auto">
+      <aside className="hidden lg:flex w-64 shrink-0 flex-col gap-4 border-l border-white/5 bg-[#141414] p-4 overflow-y-auto">
         {!selected ? (
           <p className="text-xs text-gray-600 pt-4 text-center">Selecciona una conversación</p>
         ) : (

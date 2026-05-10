@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
-import Sidebar from '@/components/sidebar'
+import AppShell from '@/components/app-shell'
 
 export default async function ProtectedLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient()
@@ -9,9 +9,8 @@ export default async function ProtectedLayout({ children }: { children: React.Re
   if (!user) redirect('/login')
 
   return (
-    <div style={{ background: '#0a0a0f' }} className="flex min-h-screen">
-      <Sidebar email={user.email ?? ''} />
-      <main className="flex-1 overflow-auto">{children}</main>
-    </div>
+    <AppShell email={user.email ?? ''}>
+      {children}
+    </AppShell>
   )
 }

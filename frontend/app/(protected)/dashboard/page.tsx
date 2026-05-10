@@ -121,7 +121,7 @@ export default function DashboardPage() {
         </div>
 
         {/* KPI Cards */}
-        <div className="grid grid-cols-2 xl:grid-cols-6 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3">
           {[
             { label: 'Conversaciones', value: L ? '–' : String(overview?.conversations_total ?? 0), sub: `${overview?.conversations_total ?? 0} hoy`, icon: '💬', glow: 'rgba(59,130,246,0.15)' },
             { label: 'IA Atendiendo', value: L ? '–' : String(overview?.ia_attending ?? 0), sub: `${overview?.ia_attending ?? 0} total`, icon: '🤖', glow: 'rgba(168,85,247,0.15)' },

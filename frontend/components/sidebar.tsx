@@ -54,12 +54,24 @@ const navLinks = [
   },
 ]
 
-export default function Sidebar({ email }: { email: string }) {
+export default function Sidebar({ email, onCloseMobile }: { email: string; onCloseMobile?: () => void }) {
   const pathname = usePathname()
 
   return (
     <aside style={{ background: '#0d0d14', borderRight: '1px solid rgba(255,255,255,0.06)' }}
-      className="flex w-60 shrink-0 flex-col py-5">
+      className="flex w-60 shrink-0 flex-col py-5 h-full">
+
+      {/* Botón cerrar solo en móvil */}
+      {onCloseMobile && (
+        <button
+          onClick={onCloseMobile}
+          className="absolute top-3 right-3 md:hidden text-gray-500 hover:text-white transition-colors"
+        >
+          <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      )}
 
       {/* Logo */}
       <div className="mb-6 px-5">
