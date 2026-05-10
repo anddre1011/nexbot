@@ -4,7 +4,7 @@ import { apiFetch } from '@/lib/api'
 
 export interface InactRule {
   id: string; position: number; delay_ms: number
-  type: 'text' | 'image' | 'video' | 'media_var'
+  type: 'text' | 'image' | 'video' | 'document' | 'media_var'
   content: string | null; media_url: string | null
 }
 
@@ -146,8 +146,8 @@ export default function InactivityRulesEditor({ rules, onChange }: {
                 className="modal-input text-xs font-mono w-full" />
             )}
 
-            {/* Imagen / Video — solo botón de subida */}
-            {(rule.type === 'image' || rule.type === 'video') && (
+            {/* Imagen / Video / Documento — botón de subida */}
+            {(rule.type === 'image' || rule.type === 'video' || rule.type === 'document') && (
               <div className="flex flex-col gap-1.5">
                 {rule.media_url ? (
                   <div className="flex items-center gap-2 rounded-xl px-3 py-2.5"
@@ -163,16 +163,21 @@ export default function InactivityRulesEditor({ rules, onChange }: {
                   <label
                     style={{ background: uploading === rule.id ? 'rgba(124,58,237,0.15)' : 'rgba(124,58,237,0.1)', border: '1px dashed rgba(124,58,237,0.35)', cursor: uploading === rule.id ? 'not-allowed' : 'pointer' }}
                     className="w-full rounded-xl py-3 text-center text-xs font-semibold text-violet-400 hover:bg-violet-500/20 transition-colors block">
-                    {uploading === rule.id ? '⏳ Subiendo...' : `📁 Subir ${rule.type === 'image' ? 'Imagen' : 'Video'}`}
+                    {uploading === rule.id ? '⏳ Subiendo...'
+                      : rule.type === 'image' ? '📁 Subir Imagen'
+                      : rule.type === 'video' ? '📁 Subir Video'
+                      : '📄 Subir PDF/Archivo'}
                     <input type="file" className="hidden"
-                      accept={rule.type === 'image' ? 'image/*' : 'video/*'}
+                      accept={rule.type === 'image' ? 'image/*' : rule.type === 'video' ? 'video/*' : '.pdf,application/pdf'}
                       disabled={uploading === rule.id}
                       onChange={e => { const f = e.target.files?.[0]; if (f) handleUpload(idx, f); e.target.value = '' }} />
                   </label>
                 )}
-                <input value={rule.content ?? ''} onChange={e => update(idx, { content: e.target.value })}
-                  placeholder="Caption (opcional)"
-                  className="modal-input text-xs" />
+                {rule.type !== 'document' && (
+                  <input value={rule.content ?? ''} onChange={e => update(idx, { content: e.target.value })}
+                    placeholder="Caption (opcional)"
+                    className="modal-input text-xs" />
+                )}
               </div>
             )}
           </div>
