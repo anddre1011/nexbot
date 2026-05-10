@@ -1,6 +1,7 @@
 import 'dotenv/config'
 import express from 'express'
 import cors from 'cors'
+import { supabase } from './services/supabase'
 
 import authRoutes from './routes/auth'
 import whatsappRoutes from './routes/whatsapp'
@@ -52,6 +53,13 @@ app.use('/api/billing',      billingRoutes)
 app.use('/api/media',        mediaRoutes)
 app.use('/api/upload',       uploadRoutes)
 
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`NexBot backend running on http://localhost:${PORT}`)
+  // Crear bucket "media" si no existe
+  const { error } = await supabase.storage.createBucket('media', { public: true })
+  if (error && !error.message.includes('already exists')) {
+    console.warn('[storage] Could not create bucket "media":', error.message)
+  } else {
+    console.log('[storage] Bucket "media" ready')
+  }
 })
