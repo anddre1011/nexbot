@@ -284,13 +284,23 @@ async function processMessage(params: {
     clearInactivityTimers(conversation.id)
   }
 
-  // 7g. Detectar descalificación → mover a kanban y desactivar IA
-  const negativeKeywords = ['no me interesa', 'no quiero', 'no gracias', 'déjame en paz']
-  const inboundLower = (inboundContent ?? '').toLowerCase()
-  if (negativeKeywords.some(kw => inboundLower.includes(kw))) {
-    console.log(`[webhook] Contact ${contact.id} disqualified, disabling AI`)
-    await supabase.from('contacts').update({ kanban_stage: 'disqualified' }).eq('id', contact.id)
-    await supabase.from('conversations').update({ ai_enabled: false }).eq('id', conversation.id)
+  // 7g. Detectar descalificación → kanban disqualified + desactivar IA
+  const disqualifyKeywords = [
+    'no me interesa', 'no quiero', 'no gracias', 'déjame en paz',
+    'es una estafa', 'es un engaño', 'es estafa', 'es engaño',
+    'estafa', 'fraude', 'engaño', 'mentira', 'mentiras',
+    'no necesito', 'basta', 'para de escribir', 'no me escribas',
+    'no me molestes', 'me molesta', 'me tiene harto', 'spameando',
+    'no me interesa para nada', 'paso', 'no paso', 'no compro',
+    'reportar', 'voy a reportar', 'es falso', 'fake',
+  ]
+  const inboundNorm = (inboundContent ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+  if (disqualifyKeywords.some(kw => inboundNorm.includes(kw.normalize('NFD').replace(/[̀-ͯ]/g, '')))) {
+    console.log(`[webhook] Contact ${contact.id} disqualified`)
+    await Promise.all([
+      supabase.from('contacts').update({ kanban_stage: 'disqualified' }).eq('id', contact.id),
+      supabase.from('conversations').update({ status: 'disqualified', ai_enabled: false }).eq('id', conversation.id),
+    ])
     clearInactivityTimers(conversation.id)
   }
 }
