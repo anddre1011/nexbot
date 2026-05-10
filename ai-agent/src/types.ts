@@ -22,11 +22,12 @@ export interface AgentResponse {
 
 export interface VoucherValidationResult {
   valid: boolean
-  amount: number | null       // monto extraído del comprobante
-  reference: string | null    // número de referencia / transacción
+  isVoucher: boolean          // true si la imagen parece un comprobante de pago
+  amount: number | null
+  reference: string | null
   bank: string | null
   date: string | null
-  message: string             // mensaje legible para responder al contacto
+  message: string
 }
 
 export interface TenantConfig {

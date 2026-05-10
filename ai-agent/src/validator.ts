@@ -85,60 +85,39 @@ export async function validateVoucher(
   const data = await extractVoucherData(imageUrl)
 
   if (!data.is_payment_voucher) {
-    return {
-      valid: false,
-      amount: null,
-      reference: null,
-      bank: null,
-      date: null,
-      message: 'La imagen no parece ser un comprobante de pago. Por favor envía una foto clara de tu transferencia o QR escaneado. 📸',
-    }
+    return { valid: false, isVoucher: false, amount: null, reference: null, bank: null, date: null, message: '' }
   }
 
   if (data.amount === null) {
     return {
-      valid: false,
-      amount: null,
-      reference: data.reference,
-      bank: data.bank,
-      date: data.date,
+      valid: false, isVoucher: true,
+      amount: null, reference: data.reference, bank: data.bank, date: data.date,
       message: 'No pudimos leer el monto del comprobante. ¿Puedes enviarlo nuevamente con mejor resolución?',
     }
   }
 
-  // Si no hay monto esperado (0), aceptar cualquier pago válido
   if (expectedAmount === 0) {
     return {
-      valid: true,
-      amount: data.amount,
-      reference: data.reference,
-      bank: data.bank,
-      date: data.date,
+      valid: true, isVoucher: true,
+      amount: data.amount, reference: data.reference, bank: data.bank, date: data.date,
       message: `✅ ¡Pago verificado! Recibimos Bs ${data.amount}${data.reference ? ` — Ref: ${data.reference}` : ''}. ¡Gracias! En breve procesamos tu pedido. 🎉`,
     }
   }
 
-  // Tolerancia del 5% para diferencias de redondeo o comisiones
   const tolerance = expectedAmount * 0.05
   const amountMatches = Math.abs(data.amount - expectedAmount) <= tolerance
 
   if (!amountMatches) {
     return {
-      valid: false,
-      amount: data.amount,
-      reference: data.reference,
-      bank: data.bank,
-      date: data.date,
+      valid: false, isVoucher: true,
+      amount: data.amount, reference: data.reference, bank: data.bank, date: data.date,
       message: `El monto del comprobante (Bs ${data.amount}) no coincide con el precio (Bs ${expectedAmount}). Verifica que hayas enviado el monto correcto.`,
     }
   }
 
   return {
-    valid: true,
-    amount: data.amount,
-    reference: data.reference,
-    bank: data.bank,
-    date: data.date,
+    valid: true, isVoucher: true,
+    amount: data.amount, reference: data.reference, bank: data.bank, date: data.date,
     message: `✅ ¡Pago verificado! Recibimos Bs ${data.amount}${data.reference ? ` — Ref: ${data.reference}` : ''}. ¡Gracias! En breve procesamos tu pedido. 🎉`,
   }
 }

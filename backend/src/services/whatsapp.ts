@@ -101,19 +101,17 @@ export async function sendMediaByType(
 
 // Descarga un media de Meta y lo devuelve como data URL base64.
 // GPT-4o Vision acepta data URLs directamente sin necesidad de subir a Storage.
-export async function downloadMediaAsDataUrl(mediaId: string): Promise<string> {
-  // 1. Obtener URL de descarga
-  const fallbackToken = process.env.META_TOKEN || ''
-  const { data } = await axios.get(`${BASE_URL}/${mediaId}`, { headers: makeHeaders(fallbackToken) })
+export async function downloadMediaAsDataUrl(mediaId: string, tenantToken?: string | null): Promise<string> {
+  const token = tenantToken || process.env.META_TOKEN || ''
+  const { data } = await axios.get(`${BASE_URL}/${mediaId}`, { headers: makeHeaders(token) })
   const downloadUrl: string = data.url
   const mimeType: string = data.mime_type ?? 'image/jpeg'
 
-  // 2. Descargar bytes con auth header
-  const imageRes = await axios.get<ArrayBuffer>(downloadUrl, {
-    headers: makeHeaders(fallbackToken),
+  const mediaRes = await axios.get<ArrayBuffer>(downloadUrl, {
+    headers: makeHeaders(token),
     responseType: 'arraybuffer',
   })
 
-  const base64 = Buffer.from(imageRes.data).toString('base64')
+  const base64 = Buffer.from(mediaRes.data).toString('base64')
   return `data:${mimeType};base64,${base64}`
 }

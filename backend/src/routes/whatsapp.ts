@@ -1,4 +1,5 @@
 import { Router } from 'express'
+import OpenAI, { toFile } from 'openai'
 import { supabase } from '../services/supabase'
 import { sendTextMessage, sendMediaByType, downloadMediaAsDataUrl } from '../services/whatsapp'
 import { resetInactivityTimers, clearInactivityTimers } from '../services/inactivity'
@@ -118,12 +119,24 @@ async function processMessage(params: {
     await linkConversationToCampaign(conversation.id, campaignId)
   }
 
-  // 5. Guardar mensaje entrante
-  const inboundContent = type === 'text' ? (raw.text as { body: string })?.body : `[${type}]`
+  // 5. Guardar mensaje entrante (transcribir audio si aplica)
+  let inboundContent: string
+  if (type === 'text') {
+    inboundContent = (raw.text as { body: string })?.body ?? ''
+  } else if (type === 'audio') {
+    const audioId = (raw.audio as { id?: string } | undefined)?.id
+    inboundContent = audioId
+      ? await transcribeAudio(audioId, creds.metaToken)
+      : '[Audio recibido]'
+    console.log(`[webhook] Audio transcribed: "${inboundContent}"`)
+  } else {
+    inboundContent = `[${type}]`
+  }
+
   await supabase.from('messages').insert({
     conversation_id: conversation.id,
     direction: 'inbound',
-    type: type === 'image' ? 'image' : 'text',
+    type: type === 'image' ? 'image' : type === 'audio' ? 'audio' : 'text',
     content: inboundContent,
   })
 
@@ -210,16 +223,21 @@ async function processMessage(params: {
   let replyText: string
 
   if (type === 'image') {
-    replyText = await handleImage(raw, contact.id, tenantId, conversation.id, from, creds)
+    replyText = await handleImage(
+      raw, contact.id, tenantId, conversation.id, from, creds,
+      activeFlow?.system_prompt ?? undefined,
+      (contact as any)?.name ?? null,
+    )
   } else {
+    // Audio (ya transcrito) y texto pasan igual por la IA
     replyText = await handleText(
       inboundContent ?? '',
       conversation.id,
       tenantId,
       activeFlow?.system_prompt ?? undefined,
       (activeFlow as any)?.model ?? 'gpt-4o',
-      (contact as any)?.name ?? null,   // nombre del contacto en WhatsApp
-      from                              // número de teléfono
+      (contact as any)?.name ?? null,
+      from
     )
   }
 
@@ -305,6 +323,64 @@ async function processMessage(params: {
   }
 }
 
+// ─── Transcribir audio con Whisper ───────────────────────────────────────────
+async function transcribeAudio(mediaId: string, tenantToken?: string | null): Promise<string> {
+  const token = tenantToken || process.env.META_TOKEN || ''
+  try {
+    const dataUrl = await downloadMediaAsDataUrl(mediaId, token)
+    const base64 = dataUrl.split(',')[1]
+    if (!base64) return '[Audio recibido]'
+    const buffer = Buffer.from(base64, 'base64')
+
+    const openaiKey = process.env.OPENAI_API_KEY
+    if (!openaiKey) {
+      console.warn('[transcribeAudio] No OPENAI_API_KEY — cannot transcribe')
+      return '[Audio recibido — no se pudo transcribir]'
+    }
+
+    const openai = new OpenAI({ apiKey: openaiKey })
+    const file = await toFile(buffer, 'audio.ogg', { type: 'audio/ogg' })
+    const result = await openai.audio.transcriptions.create({ file, model: 'whisper-1', language: 'es' })
+    console.log(`[transcribeAudio] "${result.text}"`)
+    return result.text || '[Audio sin contenido]'
+  } catch (err: any) {
+    console.error('[transcribeAudio] error:', err.message)
+    return '[Audio recibido]'
+  }
+}
+
+// ─── Respuesta visual a imagen no-voucher ────────────────────────────────────
+async function handleImageVision(
+  dataUrl: string,
+  conversationId: string,
+  tenantId: string,
+  flowPrompt?: string,
+  contactName?: string | null,
+  contactPhone?: string,
+): Promise<string> {
+  try {
+    const [history, tenant] = await Promise.all([getHistory(conversationId), getTenant(tenantId)])
+    const resolvedPrompt = resolvePromptVars(flowPrompt ?? DEFAULT_SYSTEM_PROMPT, contactName ?? null, contactPhone ?? '')
+    const openaiKey = (tenant as any)?.openai_key ?? process.env.OPENAI_API_KEY
+    if (!openaiKey) return 'Recibí tu imagen. ¿En qué te puedo ayudar?'
+
+    const openai = new OpenAI({ apiKey: openaiKey })
+    const msgs: OpenAI.ChatCompletionMessageParam[] = [
+      { role: 'system', content: resolvedPrompt },
+      ...(history.slice(-6) as OpenAI.ChatCompletionMessageParam[]),
+      { role: 'user', content: [
+        { type: 'text', text: '[El cliente envió una imagen]' },
+        { type: 'image_url', image_url: { url: dataUrl, detail: 'low' } },
+      ]},
+    ]
+    const res = await openai.chat.completions.create({ model: 'gpt-4o', messages: msgs, max_tokens: 300 })
+    return res.choices[0]?.message?.content?.trim() ?? 'Gracias por la imagen.'
+  } catch (err: any) {
+    console.error('[handleImageVision] error:', err.message)
+    return 'Recibí tu imagen. ¿En qué te puedo ayudar?'
+  }
+}
+
 // ─── Resolutor de variables del prompt ───────────────────────────────────────
 function resolvePromptVars(
   prompt: string,
@@ -374,18 +450,22 @@ async function handleImage(
   tenantId: string,
   conversationId: string,
   contactPhone: string = '',
-  creds?: { metaToken: string | null; phoneNumberId: string | null }
+  creds?: { metaToken: string | null; phoneNumberId: string | null },
+  flowPrompt?: string,
+  contactName?: string | null,
 ): Promise<string> {
   const image = raw.image as { id: string } | undefined
   if (!image?.id) return 'No pude procesar la imagen. ¿Puedes reenviarla?'
 
-  // Descargar imagen de Meta y convertir a base64 para GPT-4o Vision
   let dataUrl: string
   try {
-    dataUrl = await downloadMediaAsDataUrl(image.id)
+    dataUrl = await downloadMediaAsDataUrl(image.id, creds?.metaToken)
   } catch {
     return 'Hubo un error al descargar tu imagen. Por favor reenvíala.'
   }
+
+  // Si la imagen NO es un comprobante → que la IA la vea y responda con visión
+  // (se determina más abajo tras validateVoucher)
 
   // Buscar venta pendiente del contacto para saber el monto esperado
   const { data: pendingSale } = await supabase
@@ -401,6 +481,11 @@ async function handleImage(
   const expectedAmount = pendingSale?.amount ?? 0
 
   const validation = await validateVoucher(dataUrl, expectedAmount)
+
+  // Si no es comprobante → la IA ve la imagen y responde con visión
+  if (!validation.isVoucher) {
+    return handleImageVision(dataUrl, conversationId, tenantId, flowPrompt, contactName, contactPhone)
+  }
 
   if (validation.valid) {
     // Confirmar venta pendiente si existe, o crear nueva
