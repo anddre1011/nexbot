@@ -1,24 +1,18 @@
-// NexBot Service Worker — Push Notifications
-self.addEventListener('push', function (event) {
-  const data = event.data ? event.data.json() : {}
-
-  const title = data.title || '🔔 NexBot'
-  const options = {
-    body: data.body || 'Tienes una nueva notificación',
-    icon: '/icon-192.png',
-    badge: '/icon-192.png',
-    vibrate: [200, 100, 200],
-    data: {
-      url: data.url || '/dashboard',
-    },
-    actions: data.actions || [],
-  }
-
-  event.waitUntil(self.registration.showNotification(title, options))
+self.addEventListener('push', (event) => {
+  if (!event.data) return
+  const data = event.data.json()
+  event.waitUntil(
+    self.registration.showNotification(data.title || 'NexBot', {
+      body:  data.body  || '',
+      icon:  data.icon  || '/icon.svg',
+      badge: data.badge || '/icon.svg',
+      data:  data.data  || {},
+      vibrate: [200, 100, 200],
+    })
+  )
 })
 
-self.addEventListener('notificationclick', function (event) {
+self.addEventListener('notificationclick', (event) => {
   event.notification.close()
-  const url = event.notification.data?.url || '/dashboard'
-  event.waitUntil(clients.openWindow(url))
+  event.waitUntil(clients.openWindow('/dashboard'))
 })

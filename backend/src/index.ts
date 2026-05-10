@@ -18,6 +18,7 @@ import metaAdsRoutes       from './routes/meta-ads'
 import billingRoutes       from './routes/billing'
 import mediaRoutes         from './routes/media'
 import uploadRoutes        from './routes/upload'
+import notificationsRoutes from './routes/notifications'
 
 const app = express()
 const PORT = process.env.PORT ?? 3001
@@ -50,8 +51,9 @@ app.use('/api/flows',        flowsRoutes)
 app.use('/api/automation',   automationRoutes)
 app.use('/api/meta-ads',     metaAdsRoutes)
 app.use('/api/billing',      billingRoutes)
-app.use('/api/media',        mediaRoutes)
-app.use('/api/upload',       uploadRoutes)
+app.use('/api/media',         mediaRoutes)
+app.use('/api/upload',        uploadRoutes)
+app.use('/api/notifications', notificationsRoutes)
 
 app.listen(PORT, async () => {
   console.log(`NexBot backend running on http://localhost:${PORT}`)

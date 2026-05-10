@@ -7,9 +7,10 @@ export interface AgentInput {
   contactPhone: string
   incomingMessage: string
   history: ChatMessage[]
-  tenantPrompt: string        // system prompt configurado por el tenant
+  tenantPrompt: string
   productName?: string
   productPrice?: number
+  onLowCredits?: () => void   // callback cuando la API devuelve 402/sin saldo
 }
 
 export type AgentIntent = 'purchase' | 'voucher' | 'handoff' | 'general'

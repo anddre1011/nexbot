@@ -13,6 +13,7 @@ import {
 } from '../services/flow-engine'
 import { runAgent } from '../../../ai-agent/src/agent'
 import { validateVoucher } from '../../../ai-agent/src/validator'
+import { createNotification } from '../services/notifications'
 import { DEFAULT_SYSTEM_PROMPT } from '../../../ai-agent/src/prompts'
 import type { ChatMessage } from '../../../ai-agent/src/types'
 
@@ -320,6 +321,7 @@ async function processMessage(params: {
       supabase.from('conversations').update({ status: 'disqualified', ai_enabled: false }).eq('id', conversation.id),
     ])
     clearInactivityTimers(conversation.id)
+    createNotification({ tenantId, type: 'disqualification', title: '❌ Contacto descalificado', body: `${from} no estaba interesado`, data: { phone: from } }).catch(() => {})
   }
 }
 
@@ -438,6 +440,9 @@ async function handleText(
     model:       flowModel ?? 'gpt-4o',
     apiKey:      (tenant as any)?.openai_key    ?? process.env.OPENAI_API_KEY,
     deepseekKey: (tenant as any)?.deepseek_key  ?? process.env.DEEPSEEK_API_KEY,
+    onLowCredits: () => {
+      createNotification({ tenantId, type: 'low_credits', title: '⚠️ Créditos de IA agotados', body: 'Tu saldo de OpenAI/DeepSeek está vacío. Recarga para continuar.', data: { model: flowModel } }).catch(() => {})
+    },
   } as any)
 
   return result.reply
@@ -524,6 +529,7 @@ async function handleImage(
           await propagateCampaignToSale(newSale.id, conversationId)
         }
         console.log(`[webhook] Sale created: ${productName} Bs${productPrice} for contact ${contactId}`)
+        createNotification({ tenantId, type: 'sale', title: '💰 Nueva venta', body: `${productName} — Bs ${productPrice}`, data: { amount: productPrice, product: productName } }).catch(() => {})
       }
 
       if (conversion) {

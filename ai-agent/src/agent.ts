@@ -47,8 +47,8 @@ async function detectIntent(message: string, openaiKey?: string): Promise<{ inte
 export async function runAgent(input: AgentInput): Promise<AgentResponse> {
   const {
     incomingMessage, history, tenantPrompt, productName, productPrice,
-    model: requestedModel, apiKey, deepseekKey,
-  } = input as AgentInput & { model?: string; apiKey?: string; deepseekKey?: string }
+    model: requestedModel, apiKey, deepseekKey, onLowCredits,
+  } = input as AgentInput & { model?: string; apiKey?: string; deepseekKey?: string; onLowCredits?: () => void }
 
   const model = requestedModel ?? 'gpt-4o'
 
@@ -92,7 +92,8 @@ export async function runAgent(input: AgentInput): Promise<AgentResponse> {
     const code = err?.status ?? err?.code ?? ''
     console.error(`[agent] API error (${resolvedModel}):`, code, err?.message ?? err)
 
-    if (code === 402 || String(err?.message).includes('Insufficient Balance')) {
+    if (code === 402 || String(err?.message).includes('Insufficient Balance') || String(err?.message).includes('insufficient_quota')) {
+      onLowCredits?.()
       return { reply: 'En este momento estoy con problemas técnicos. Por favor escríbeme en unos minutos. 🙏', intent, confidence }
     }
     return { reply: '¡Hola! ¿En qué te puedo ayudar hoy? 😊', intent, confidence }
