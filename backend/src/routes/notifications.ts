@@ -73,8 +73,8 @@ router.post('/push-subscribe', async (req, res) => {
   if (!subscription?.endpoint) return res.status(400).json({ error: 'subscription required' })
 
   await supabase.from('push_subscriptions').upsert(
-    { tenant_id: tenantId, subscription, user_agent: userAgent },
-    { onConflict: 'tenant_id,subscription->endpoint' }
+    { tenant_id: tenantId, endpoint: subscription.endpoint, subscription, user_agent: userAgent },
+    { onConflict: 'tenant_id,endpoint' }
   )
   res.json({ ok: true })
 })
