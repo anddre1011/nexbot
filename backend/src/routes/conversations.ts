@@ -207,11 +207,13 @@ router.patch('/:id/status', async (req, res) => {
 router.delete('/:id/reset', async (req, res) => {
   // 1. Borrar todos los mensajes
   await supabase.from('messages').delete().eq('conversation_id', req.params.id)
-  // 2. Resetear conversación: bot activo, IA habilitada, sin campaña
+  
+  // 2. Borrar la conversación entera para que actúe como un cliente 100% nuevo
   const { error } = await supabase
     .from('conversations')
-    .update({ status: 'bot', last_read_at: null })
+    .delete()
     .eq('id', req.params.id)
+    
   if (error) { res.status(500).json({ error: error.message }); return }
   res.json({ ok: true })
 })
