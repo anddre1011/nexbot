@@ -534,8 +534,14 @@ function FlowPanel({ flow, medias, onClose, onSaved }: {
                             const v = `{{media:${pendingMedia.varName}}}`
                             // Añadir al final del prompt (evita problema de cursor fuera de foco)
                             set('system_prompt', (form.system_prompt ?? '') + '\n' + v)
+                            
+                            // Determinar tipo basado en extensión simple de la URL
+                            const isVid = pendingMedia.url.match(/\.(mp4|mov|avi|wmv)$/i)
+                            const isAud = pendingMedia.url.match(/\.(mp3|ogg|wav)$/i)
+                            const mediaType = isVid ? 'video' : isAud ? 'audio' : 'image'
+
                             // Guardar en tabla media para que aparezca en Biblioteca
-                            apiFetch('/api/media', { method: 'POST', body: JSON.stringify({ name: pendingMedia.varName, type: 'image', url: pendingMedia.url, variable: v }) }).catch(() => {})
+                            apiFetch('/api/media', { method: 'POST', body: JSON.stringify({ name: pendingMedia.varName, type: mediaType, url: pendingMedia.url, variable: v }) }).catch(() => {})
                             setPendingMedia(null)
                             setShowMediaPicker(false)
                           }}
