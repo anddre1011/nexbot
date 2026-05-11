@@ -167,16 +167,23 @@ async function processMessage(params: {
       )
       if (matched?.flow_id && matched.flows) {
         keywordFlow = matched.flows as unknown as FlowInfo
-        // Vincular flujo a la conversación
-        await supabase.from('conversations')
-          .update({ flow_id: matched.flow_id })
-          .eq('id', conversation.id)
-        console.log(`[webhook] Keyword "${matched.keyword}" → flow "${(matched.flows as any)?.name}"`)
+        
+        // Ejecutar flujo inicial SOLO si es un flujo distinto al actual o si la conversa estaba inactiva/cerrada
+        const isSameFlow = conversation.flow_id === matched.flow_id;
+        const isActiveSession = ['bot', 'human'].includes(conversation.status);
 
-        // Ejecutar flujo de bienvenida del keyword inmediatamente
-        console.log(`[webhook] Executing keyword flow steps for "${(matched.flows as any)?.name}"`)
-        await executeWelcomeFlow(matched.flow_id, from, conversation.id, tenantId, creds)
-        return  // El flujo inicial ya respondió — el AI responderá en el próximo mensaje
+        if (!isSameFlow || !isActiveSession) {
+          // Vincular flujo nuevo a la conversación
+          await supabase.from('conversations')
+            .update({ flow_id: matched.flow_id, status: 'bot' })
+            .eq('id', conversation.id)
+          
+          console.log(`[webhook] Keyword "${matched.keyword}" → executing flow "${(matched.flows as any)?.name}"`)
+          await executeWelcomeFlow(matched.flow_id, from, conversation.id, tenantId, creds)
+          return  // El flujo inicial ya respondió
+        } else {
+          console.log(`[webhook] Keyword "${matched.keyword}" ignored because conversation is already in this flow. AI will handle it.`)
+        }
       }
     }
   }
