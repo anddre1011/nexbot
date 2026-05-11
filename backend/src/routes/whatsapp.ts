@@ -256,6 +256,21 @@ async function processMessage(params: {
     console.log(`[webhook] Function calls detected: ${functions.join(', ')}`)
 
     for (const fn of functions) {
+      if (fn === 'call_attendant') {
+        await supabase.from('conversations').update({ status: 'human' }).eq('id', conversation.id)
+        clearInactivityTimers(conversation.id)
+        continue
+      }
+
+      if (fn === 'disqualified') {
+        await Promise.all([
+          supabase.from('contacts').update({ kanban_stage: 'disqualified' }).eq('id', contact.id),
+          supabase.from('conversations').update({ status: 'disqualified', ai_enabled: false }).eq('id', conversation.id),
+        ])
+        clearInactivityTimers(conversation.id)
+        continue
+      }
+
       const success = await executeConversionFlow(
         activeFlow.id,
         fn,
@@ -301,14 +316,7 @@ async function processMessage(params: {
     }
   }
 
-  // 7f. Si el agente detecta handoff → marcar conversación como 'human'
-  if (replyText.toLowerCase().includes('asesor') || replyText.toLowerCase().includes('humano')) {
-    await supabase
-      .from('conversations')
-      .update({ status: 'human' })
-      .eq('id', conversation.id)
-    clearInactivityTimers(conversation.id)
-  }
+  // 7f. (Eliminado: handoff automático por texto, ahora se usa {{function:call_attendant}})
 
   // 7g. Detectar descalificación → kanban disqualified + desactivar IA
   const disqualifyKeywords = [

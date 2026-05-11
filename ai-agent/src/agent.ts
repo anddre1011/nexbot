@@ -57,9 +57,6 @@ export async function runAgent(input: AgentInput): Promise<AgentResponse> {
   if (intent === 'voucher') {
     return { reply: '¡Recibido! Estoy verificando tu comprobante de pago. En un momento te confirmo. 🙏', intent, confidence }
   }
-  if (intent === 'handoff') {
-    return { reply: 'Entendido, voy a conectarte con un asesor que podrá ayudarte mejor. Un momento por favor. 👤', intent, confidence }
-  }
 
   const systemPrompt = buildSystemPrompt({
     tenantId: '', systemPrompt: tenantPrompt,
