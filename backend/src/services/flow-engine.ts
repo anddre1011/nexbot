@@ -238,7 +238,7 @@ export function detectFunctionCalls(text: string): {
   cleaned: string
   functions: string[]
 } {
-  const regex = /\{\{function:([^}]+)\}\}/g
+  const regex = /\{\{\s*function:\s*([^}]+?)\s*\}\}/g
   const functions: string[] = []
   let cleaned = text
 
@@ -260,7 +260,7 @@ export async function resolveMediaTags(
 ): Promise<{
   parts: Array<{ type: 'text' | 'image' | 'video' | 'audio'; content: string }>
 }> {
-  const regex = /\{\{media:([^}]+)\}\}/g
+  const regex = /\{\{\s*media:\s*([^}]+?)\s*\}\}/g
   const parts: Array<{ type: 'text' | 'image' | 'video' | 'audio'; content: string }> = []
 
   let lastIndex = 0

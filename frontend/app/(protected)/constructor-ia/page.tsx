@@ -616,12 +616,44 @@ function FlowPanel({ flow, medias, onClose, onSaved }: {
               </div>
             </div>
 
-            <textarea ref={promptRef}
-              rows={promptExpanded ? 22 : 8}
-              value={form.system_prompt}
-              onChange={(e) => set('system_prompt', e.target.value)}
-              style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.10)' }}
-              className="w-full rounded-xl px-4 py-3 font-mono text-xs leading-relaxed text-gray-200 placeholder-gray-600 outline-none transition-all focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20 resize-none" />
+            <div className="relative w-full rounded-xl transition-all focus-within:border-violet-500 focus-within:ring-2 focus-within:ring-violet-500/20" style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.10)' }}>
+              {/* Overlay visual para los colores */}
+              <div 
+                className="absolute inset-0 z-0 overflow-auto whitespace-pre-wrap break-words px-4 py-3 font-mono text-xs leading-relaxed pointer-events-none"
+                aria-hidden="true"
+              >
+                {form.system_prompt?.split(/(\{\{\s*media:\s*[^}]+\s*\}\})/g).map((part, i) => {
+                  if (part.match(/\{\{\s*media:\s*([^}]+?)\s*\}\}/)) {
+                    // Validar si existe
+                    const isValid = medias.some(m => {
+                      const normalizedPart = part.replace(/\s+/g, '');
+                      const normalizedM = (m.variable || '').replace(/\s+/g, '');
+                      return normalizedPart === normalizedM;
+                    });
+                    return (
+                      <span key={i} className={`font-bold rounded px-1 ${isValid ? 'text-emerald-400 bg-emerald-400/10' : 'text-red-400 bg-red-400/20'}`}>
+                        {part}
+                      </span>
+                    )
+                  }
+                  return <span key={i} className="text-gray-200">{part}</span>
+                })}
+              </div>
+              
+              {/* Textarea real (transparente) */}
+              <textarea ref={promptRef}
+                rows={promptExpanded ? 22 : 8}
+                value={form.system_prompt}
+                onChange={(e) => set('system_prompt', e.target.value)}
+                onScroll={(e) => {
+                  const div = e.currentTarget.previousElementSibling as HTMLDivElement;
+                  if (div) div.scrollTop = e.currentTarget.scrollTop;
+                }}
+                spellCheck={false}
+                style={{ color: 'transparent', caretColor: 'white' }}
+                className="relative z-10 w-full h-full bg-transparent px-4 py-3 font-mono text-xs leading-relaxed outline-none resize-none" 
+              />
+            </div>
           </div>
 
           {/* Handoff */}
