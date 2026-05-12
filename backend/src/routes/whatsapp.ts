@@ -188,8 +188,17 @@ async function processMessage(params: {
     }
   }
 
-  // 6b2. Buscar flujo activo (keyword tiene prioridad)
-  const activeFlow: FlowInfo | null = keywordFlow ?? await getActiveFlow(tenantId)
+  // 6b2. Flujo activo es estrictamente el de la palabra clave (sin fallback automático para evitar disparos erróneos)
+  const activeFlow: FlowInfo | null = keywordFlow // ?? await getActiveFlow(tenantId)
+
+  // Si es conversación nueva y NO hizo match con ninguna palabra clave, dejar en bandeja de entrada (open)
+  if (isNewConversation && !activeFlow) {
+    console.log(`[webhook] No keyword matched for new conversation. Routing to human inbox (open).`)
+    await supabase.from('conversations')
+      .update({ status: 'open', ai_enabled: false })
+      .eq('id', conversation.id)
+    return
+  }
 
   // 6c. Reiniciar temporizadores de inactividad (con reglas del flujo)
   resetInactivityTimers(conversation.id, from, activeFlow?.id, tenantId, creds)
