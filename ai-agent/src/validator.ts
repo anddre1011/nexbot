@@ -115,6 +115,26 @@ export async function validateVoucher(
     }
   }
 
+  // VALIDACIÓN DE FECHA (Bolivia time)
+  if (data.date) {
+    const today = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/La_Paz' }))
+    const todayStr = today.toISOString().split('T')[0]
+    
+    // Calcular ayer
+    const yesterday = new Date(today)
+    yesterday.setDate(yesterday.getDate() - 1)
+    const yesterdayStr = yesterday.toISOString().split('T')[0]
+
+    // Solo aceptar pagos de hoy o ayer máximo
+    if (data.date !== todayStr && data.date !== yesterdayStr) {
+      return {
+        valid: false, isVoucher: true,
+        amount: data.amount, reference: data.reference, bank: data.bank, date: data.date,
+        message: `El comprobante tiene fecha de ${data.date}. Solo se aceptan pagos realizados hoy. Por favor, realiza el pago actual o envía el comprobante correcto.`,
+      }
+    }
+  }
+
   return {
     valid: true, isVoucher: true,
     amount: data.amount, reference: data.reference, bank: data.bank, date: data.date,
