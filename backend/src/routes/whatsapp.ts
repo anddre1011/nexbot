@@ -10,7 +10,6 @@ import {
   detectFunctionCalls,
   resolveMediaTags,
   getActiveFlow,
-  getFlowById,
 } from '../services/flow-engine'
 import { runAgent } from '../../../ai-agent/src/agent'
 import { validateVoucher } from '../../../ai-agent/src/validator'
@@ -110,7 +109,7 @@ async function processMessage(params: {
   const contact = await upsertContact(from, tenantId)
 
   // 2. Extraer campaña del referral de Meta (solo presente en primer mensaje del click)
-  const { campaignId, flowId: campaignFlowId } = await resolveCampaign(raw, tenantId)
+  const { campaignId } = await resolveCampaign(raw, tenantId)
 
   // 3. Obtener o crear conversación abierta
   const conversation = await getOrCreateConversation(contact.id, tenantId)
@@ -151,9 +150,6 @@ async function processMessage(params: {
   // 6b. Detectar palabra clave y asignar flujo correspondiente
   type FlowInfo = { id: string; name: string; type: string; model: string; system_prompt: string | null }
   let keywordFlow: FlowInfo | null = null
-  const campaignFlow: FlowInfo | null = campaignFlowId
-    ? await getFlowById(campaignFlowId, tenantId)
-    : null
   if (type === 'text' && inboundContent) {
     // Normalizar acentos: "máster" === "master", "información" === "informacion"
     const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim()
@@ -161,7 +157,7 @@ async function processMessage(params: {
 
     const { data: keywords } = await supabase
       .from('keywords')
-      .select('keyword, flow_id, executions, flows(id, name, type, model, system_prompt)')
+      .select('keyword, flow_id, flows(id, name, type, model, system_prompt)')
       .eq('tenant_id', tenantId)
       .eq('active', true)
 
@@ -170,6 +166,7 @@ async function processMessage(params: {
         msgNorm.includes(norm(k.keyword)) || msgNorm === norm(k.keyword)
       )
       if (matched?.flow_id && matched.flows) {
+        keywordFlow = matched.flows as unknown as FlowInfo
         
         // Ejecutar flujo inicial SOLO si es una sesión inactiva/nueva
         // Si el estatus es 'human', NUNCA intervenimos.
@@ -179,19 +176,13 @@ async function processMessage(params: {
         if (isActiveSession) {
           console.log(`[webhook] Keyword "${matched.keyword}" ignored because conversation is already active. AI will handle it.`)
         } else {
-          keywordFlow = matched.flows as unknown as FlowInfo
           // Vincular flujo nuevo a la conversación y reactivar la IA
           await supabase.from('conversations')
             .update({ flow_id: matched.flow_id, status: 'bot', ai_enabled: true })
             .eq('id', conversation.id)
-          await supabase.from('keywords')
-            .update({ executions: (matched.executions ?? 0) + 1 })
-            .eq('tenant_id', tenantId)
-            .eq('keyword', matched.keyword)
           
           console.log(`[webhook] Keyword "${matched.keyword}" → executing flow "${(matched.flows as any)?.name}"`)
           await executeWelcomeFlow(matched.flow_id, from, conversation.id, tenantId, creds)
-          resetInactivityTimers(conversation.id, from, matched.flow_id, tenantId, creds)
           return  // El flujo inicial ya respondió
         }
       }
@@ -199,11 +190,7 @@ async function processMessage(params: {
   }
 
   // 6b2. Flujo activo es estrictamente el de la palabra clave (sin fallback automático para evitar disparos erróneos)
-  const existingFlow = conversation.flow_id
-    ? await getFlowById(conversation.flow_id, tenantId)
-    : null
-
-  const activeFlow: FlowInfo | null = keywordFlow ?? campaignFlow ?? existingFlow
+  const activeFlow: FlowInfo | null = keywordFlow // ?? await getActiveFlow(tenantId)
 
   // Si es conversación nueva y NO hizo match con ninguna palabra clave, dejar en bandeja de entrada (open)
   if (isNewConversation && !activeFlow) {
@@ -226,7 +213,7 @@ async function processMessage(params: {
     // Vincular flujo a la conversación
     await supabase
       .from('conversations')
-      .update({ flow_id: activeFlow.id, flow_step: 0, status: 'bot', ai_enabled: true })
+      .update({ flow_id: activeFlow.id, flow_step: 0 })
       .eq('id', conversation.id)
 
     // Ejecutar secuencia de bienvenida
@@ -258,7 +245,6 @@ async function processMessage(params: {
       raw, contact.id, tenantId, conversation.id, from, creds,
       activeFlow?.system_prompt ?? undefined,
       (contact as any)?.name ?? null,
-      activeFlow?.id,
     )
   } else {
     // Audio (ya transcrito) y texto pasan igual por la IA
@@ -495,7 +481,6 @@ async function handleImage(
   creds?: { metaToken: string | null; phoneNumberId: string | null },
   flowPrompt?: string,
   contactName?: string | null,
-  flowId?: string,
 ): Promise<string> {
   const image = raw.image as { id: string } | undefined
   if (!image?.id) return 'No pude procesar la imagen. ¿Puedes reenviarla?'
@@ -522,9 +507,8 @@ async function handleImage(
     .single()
 
   const expectedAmount = pendingSale?.amount ?? 0
-  const tenant = await getTenant(tenantId)
 
-  const validation = await validateVoucher(dataUrl, expectedAmount, (tenant as any)?.openai_key ?? null)
+  const validation = await validateVoucher(dataUrl, expectedAmount)
 
   // Si no es comprobante → la IA ve la imagen y responde con visión
   if (!validation.isVoucher) {
@@ -539,7 +523,7 @@ async function handleImage(
     }
 
     // Buscar flujo activo para ejecutar su conversión
-    const activeFlow = flowId ? await getFlowById(flowId, tenantId) : await getActiveFlow(tenantId)
+    const activeFlow = await getActiveFlow(tenantId)
     if (activeFlow) {
       const { data: conversions } = await supabase
         .from('flow_conversions').select('*').eq('flow_id', activeFlow.id).limit(1)

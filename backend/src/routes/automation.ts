@@ -20,7 +20,7 @@ router.get('/campaigns', async (_req, res) => {
 
   const { data, error } = await supabase
     .from('automation_campaigns')
-    .select('id, name, flow_id, product_id, meta_ad_source_id, source_ids, executions, active, created_at, flows(id, name)')
+    .select('id, name, meta_ad_source_id, executions, active, created_at, flows(id, name)')
     .eq('tenant_id', tenantId)
     .order('created_at', { ascending: false })
 
@@ -53,18 +53,16 @@ router.post('/campaigns', async (req, res) => {
 })
 
 router.patch('/campaigns/:id', async (req, res) => {
-  const { active, name, flow_id, product_id, meta_ad_source_id, source_ids } = req.body
+  const { active, name, flow_id, meta_ad_source_id } = req.body
   const updates: Record<string, unknown> = {}
   if (active          !== undefined) updates.active            = active
   if (name            !== undefined) updates.name              = name
   if (flow_id         !== undefined) updates.flow_id           = flow_id
-  if (product_id      !== undefined) updates.product_id        = product_id
   if (meta_ad_source_id !== undefined) updates.meta_ad_source_id = meta_ad_source_id
-  if (source_ids      !== undefined) updates.source_ids        = source_ids
 
   const { data, error } = await supabase
     .from('automation_campaigns').update(updates).eq('id', req.params.id)
-    .select('id, name, active, flow_id, product_id, meta_ad_source_id, source_ids').single()
+    .select('id, name, active').single()
 
   if (error) { res.status(500).json({ error: error.message }); return }
   res.json(data)
