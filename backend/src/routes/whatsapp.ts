@@ -10,6 +10,7 @@ import {
   detectFunctionCalls,
   resolveMediaTags,
   getActiveFlow,
+  getFlowById,
 } from '../services/flow-engine'
 import { runAgent } from '../../../ai-agent/src/agent'
 import { validateVoucher } from '../../../ai-agent/src/validator'
@@ -189,8 +190,12 @@ async function processMessage(params: {
     }
   }
 
-  // 6b2. Flujo activo es estrictamente el de la palabra clave (sin fallback automático para evitar disparos erróneos)
-  const activeFlow: FlowInfo | null = keywordFlow // ?? await getActiveFlow(tenantId)
+  const existingFlow = conversation.flow_id
+    ? await getFlowById(conversation.flow_id, tenantId)
+    : null
+
+  // Usar el flujo de la palabra clave nueva, o continuar con el flujo ya vinculado a la conversación.
+  const activeFlow: FlowInfo | null = keywordFlow ?? existingFlow
 
   // Si es conversación nueva y NO hizo match con ninguna palabra clave, dejar en bandeja de entrada (open)
   if (isNewConversation && !activeFlow) {

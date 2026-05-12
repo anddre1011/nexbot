@@ -319,6 +319,23 @@ export async function getActiveFlow(tenantId: string): Promise<{
   return data
 }
 
+export async function getFlowById(flowId: string, tenantId: string): Promise<{
+  id: string
+  name: string
+  type: string
+  model: string
+  system_prompt: string | null
+} | null> {
+  const { data } = await supabase
+    .from('flows')
+    .select('id, name, type, model, system_prompt')
+    .eq('id', flowId)
+    .eq('tenant_id', tenantId)
+    .maybeSingle()
+
+  return data
+}
+
 // ─── Cargar reglas de inactividad de un flujo ─────────────────────────────────
 export async function getInactivityRules(flowId: string): Promise<FlowInactivityRule[]> {
   const { data } = await supabase
