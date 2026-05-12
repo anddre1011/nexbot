@@ -30,8 +30,6 @@ services:
       SUPABASE_URL:               ${SUPABASE_URL}
       SUPABASE_SERVICE_KEY:       ${SUPABASE_SERVICE_KEY}
       OPENAI_API_KEY:             ${OPENAI_API_KEY}
-      DEEPSEEK_API_KEY:           ${DEEPSEEK_API_KEY:-}
-      GEMINI_API_KEY:             ${GEMINI_API_KEY:-}
       META_TOKEN:                 ${META_TOKEN}
       META_PHONE_NUMBER_ID:       ${META_PHONE_NUMBER_ID}
       META_WEBHOOK_VERIFY_TOKEN:  ${META_WEBHOOK_VERIFY_TOKEN}
@@ -51,6 +49,4 @@ services:
       NODE_ENV:        production
       AI_AGENT_PORT:   3002
       OPENAI_API_KEY:  ${OPENAI_API_KEY}
-      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
-      GEMINI_API_KEY:  ${GEMINI_API_KEY:-}
     restart: unless-stopped
