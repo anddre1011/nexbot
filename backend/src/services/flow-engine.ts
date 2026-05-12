@@ -7,6 +7,7 @@ import {
   sendDocumentMessage,
   type TenantCredentials,
 } from './whatsapp'
+import { propagateCampaignToSale } from './campaigns'
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 interface FlowStep {
@@ -161,14 +162,30 @@ export async function executeConversionFlow(
 
     // 2. Vincular producto al contacto (registrar venta)
     if (conv.product_id && conv.products) {
-      await supabase.from('sales').insert({
-        tenant_id: tenantId,
-        contact_id: contactId,
-        product: conv.products.name,
-        amount: conv.products.price,
-        status: 'confirmed',
-        campaign_id: null, // se propaga desde la conversación
-      })
+      const { data: pendingSale } = await supabase
+        .from('sales')
+        .select('id')
+        .eq('tenant_id', tenantId)
+        .eq('contact_id', contactId)
+        .eq('status', 'pending')
+        .eq('amount', conv.products.price)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      const saleResult = pendingSale?.id
+        ? await supabase.from('sales').update({ status: 'confirmed' }).eq('id', pendingSale.id).select('id').single()
+        : await supabase.from('sales').insert({
+            tenant_id: tenantId,
+            contact_id: contactId,
+            product: conv.products.name,
+            amount: conv.products.price,
+            status: 'confirmed',
+          }).select('id').single()
+
+      if (saleResult.data?.id) {
+        await propagateCampaignToSale(saleResult.data.id, conversationId)
+      }
 
       // 3. Entregar producto automáticamente si tiene delivery_url
       if (conv.delivery_enabled && conv.products.delivery_url) {

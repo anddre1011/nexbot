@@ -250,6 +250,7 @@ async function processMessage(params: {
       raw, contact.id, tenantId, conversation.id, from, creds,
       activeFlow?.system_prompt ?? undefined,
       (contact as any)?.name ?? null,
+      activeFlow?.id,
     )
   } else {
     // Audio (ya transcrito) y texto pasan igual por la IA
@@ -305,6 +306,16 @@ async function processMessage(params: {
   }
 
   // 7e. Detectar {{media:X}} en la respuesta y enviar multimedia
+  if (activeFlow) {
+    await maybeCreatePendingSale(
+      activeFlow.id,
+      tenantId,
+      contact.id,
+      conversation.id,
+      `${inboundContent ?? ''}\n${cleaned || replyText}`,
+    )
+  }
+
   const { parts } = await resolveMediaTags(cleaned || replyText, tenantId)
 
   if (parts.length > 1 || (parts.length === 1 && parts[0].type !== 'text')) {
@@ -486,6 +497,7 @@ async function handleImage(
   creds?: { metaToken: string | null; phoneNumberId: string | null },
   flowPrompt?: string,
   contactName?: string | null,
+  flowId?: string,
 ): Promise<string> {
   const image = raw.image as { id: string } | undefined
   if (!image?.id) return 'No pude procesar la imagen. ¿Puedes reenviarla?'
@@ -515,95 +527,129 @@ async function handleImage(
 
   const validation = await validateVoucher(dataUrl, expectedAmount)
 
-  // Si no es comprobante → la IA ve la imagen y responde con visión
   if (!validation.isVoucher) {
-    return handleImageVision(dataUrl, conversationId, tenantId, flowPrompt, contactName, contactPhone)
+    return 'Fiera, esa imagen no parece un comprobante de pago. Mándame la captura del depósito o transferencia y lo verifico al tiro.'
   }
 
-  if (validation.valid) {
-    // Confirmar venta pendiente si existe, o crear nueva
-    if (pendingSale?.id) {
-      await supabase.from('sales').update({ status: 'confirmed' }).eq('id', pendingSale.id)
-      await propagateCampaignToSale(pendingSale.id, conversationId)
-    }
+  if (!validation.valid) {
+    return validation.message || 'No pude verificar ese comprobante. Mándame una captura más clara donde se vea monto y fecha.'
+  }
 
-    // Buscar flujo activo para ejecutar su conversión
-    const activeFlow = await getActiveFlow(tenantId)
-    if (activeFlow) {
-      const { data: conversions } = await supabase
-        .from('flow_conversions').select('*').eq('flow_id', activeFlow.id).limit(1)
+  const activeFlow = flowId ? await getFlowById(flowId, tenantId) : await getActiveFlow(tenantId)
+  const paymentConversions = activeFlow ? await getPaymentConversions(activeFlow.id) : []
+  const matchedConversion = findConversionForAmount(paymentConversions, pendingSale?.amount ?? validation.amount)
 
-      const conversion = conversions?.[0]
+  if (!activeFlow || !matchedConversion) {
+    return `Pago leído por Bs ${validation.amount ?? 'sin monto'}, pero no encontré una conversión/producto configurado con ese monto. Te paso con un asesor para revisarlo.`
+  }
 
-      // Obtener producto vinculado al flujo
-      let productName = 'Producto'
-      let productPrice = validation.amount ?? 0
-      if (conversion?.product_id) {
-        const { data: prod } = await supabase
-          .from('products').select('name, price').eq('id', conversion.product_id).single()
-        if (prod) { productName = prod.name; productPrice = prod.price }
-      }
+  const success = await executeConversionFlow(
+    activeFlow.id,
+    matchedConversion.function_name,
+    contactId,
+    contactPhone,
+    conversationId,
+    tenantId,
+    creds,
+  )
 
-      // Crear registro de venta en la tabla sales
-      if (!pendingSale?.id) {
-        const { data: newSale } = await supabase.from('sales').insert({
-          tenant_id:  tenantId,
-          contact_id: contactId,
-          product:    productName,
-          amount:     productPrice,
-          status:     'confirmed',
-        }).select('id').single()
-        if (newSale?.id) {
-          await propagateCampaignToSale(newSale.id, conversationId)
-        }
-        console.log(`[webhook] Sale created: ${productName} Bs${productPrice} for contact ${contactId}`)
-        createNotification({ tenantId, type: 'sale', title: '💰 Nueva venta', body: `${productName} — Bs ${productPrice}`, data: { amount: productPrice, product: productName } }).catch(() => {})
-      }
-
-      if (conversion) {
-        const kanbanStage = conversion.kanban_stage ?? 'converted'
-        await supabase.from('conversations')
-          .update({ status: kanbanStage, ai_enabled: !conversion.disable_ai })
-          .eq('id', conversationId)
-
-        // Entregar producto si está configurado
-        if (conversion.delivery_enabled && conversion.product_id) {
-          const { data: product } = await supabase
-            .from('products').select('delivery_url, name').eq('id', conversion.product_id).single()
-          if (product?.delivery_url) {
-            const deliveryMsg = `🎉 ¡Acceso habilitado! Aquí está tu enlace:\n${product.delivery_url}`
-            await sendTextMessage(contactPhone, deliveryMsg, creds)
-            await saveOutbound(conversationId, 'text', deliveryMsg)
-          }
-        }
-
-        if (conversion.confirm_message?.trim()) {
-          await sendTextMessage(contactPhone, conversion.confirm_message, creds)
-          await saveOutbound(conversationId, 'text', conversion.confirm_message)
-        }
-
-        console.log(`[webhook] Conversion triggered: ${kanbanStage}`)
-        clearInactivityTimers(conversationId)
-        return validation.message
-      }
-    }
-
-    // Sin flujo → crear venta genérica y mover a convertido
-    if (!pendingSale?.id) {
-      await supabase.from('sales').insert({
-        tenant_id: tenantId, contact_id: contactId,
-        product: 'Venta', amount: validation.amount ?? 0, status: 'confirmed',
-      })
-    }
-    await supabase.from('conversations').update({ status: 'converted' }).eq('id', conversationId)
+  if (success) {
     clearInactivityTimers(conversationId)
-    console.log(`[webhook] Payment validated for contact ${contactId}`)
+    console.log(`[webhook] Payment conversion ${matchedConversion.function_name} triggered for contact ${contactId}`)
+    return ''
   }
 
-  return validation.message
+  return 'Pude leer el comprobante, pero no pude activar la entrega automática. Te paso con un asesor para resolverlo.'
 }
 
 // ─── Helpers de base de datos ─────────────────────────────────────────────────
+type PaymentConversion = {
+  function_name: string
+  product_id: string | null
+  products: { name: string; price: number } | null
+}
+
+async function getPaymentConversions(flowId: string): Promise<PaymentConversion[]> {
+  const { data } = await supabase
+    .from('flow_conversions')
+    .select('function_name, product_id, products:product_id(name, price)')
+    .eq('flow_id', flowId)
+
+  return (data ?? []) as unknown as PaymentConversion[]
+}
+
+function findConversionForAmount(
+  conversions: PaymentConversion[],
+  amount: number | null | undefined
+): PaymentConversion | null {
+  if (!amount) return conversions.length === 1 ? conversions[0] : null
+
+  const numericAmount = Number(amount)
+  return conversions.find((conversion) => {
+    const price = Number(conversion.products?.price ?? 0)
+    return price > 0 && Math.abs(price - numericAmount) <= Math.max(1, price * 0.05)
+  }) ?? null
+}
+
+async function maybeCreatePendingSale(
+  flowId: string,
+  tenantId: string,
+  contactId: string,
+  conversationId: string,
+  text: string,
+) {
+  if (!/\{\{\s*media:\s*qr\s*\}\}/i.test(text)) return
+
+  const { data: existing } = await supabase
+    .from('sales')
+    .select('id')
+    .eq('tenant_id', tenantId)
+    .eq('contact_id', contactId)
+    .eq('status', 'pending')
+    .limit(1)
+    .maybeSingle()
+
+  if (existing?.id) return
+
+  const conversions = await getPaymentConversions(flowId)
+  const selected = inferConversionFromText(conversions, text)
+  if (!selected?.products) return
+
+  const { data: sale } = await supabase.from('sales').insert({
+    tenant_id: tenantId,
+    contact_id: contactId,
+    product: selected.products.name,
+    amount: selected.products.price,
+    status: 'pending',
+  }).select('id').single()
+
+  if (sale?.id) {
+    await propagateCampaignToSale(sale.id, conversationId)
+  }
+}
+
+function inferConversionFromText(
+  conversions: PaymentConversion[],
+  text: string
+): PaymentConversion | null {
+  if (conversions.length === 1) return conversions[0]
+
+  const normalized = text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+
+  return conversions.find((conversion) => {
+    const product = conversion.products
+    if (!product) return false
+
+    const name = product.name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+    const price = Number(product.price)
+
+    return normalized.includes(name)
+      || (name.includes('premium') && normalized.includes('premium'))
+      || (name.includes('basico') && normalized.includes('basico'))
+      || (price > 0 && new RegExp(`\\b${price}(?:\\.00)?\\b`).test(normalized))
+  }) ?? null
+}
+
 async function upsertContact(phone: string, tenantId: string) {
   const { data, error } = await supabase
     .from('contacts')
