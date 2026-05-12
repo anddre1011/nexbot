@@ -169,15 +169,16 @@ async function processMessage(params: {
         keywordFlow = matched.flows as unknown as FlowInfo
         
         // Ejecutar flujo inicial SOLO si es una sesión inactiva/nueva
-        // Consideramos sesión inactiva si fue recién creada (_new) o si el estatus no es de charlar
-        const isActiveSession = ['bot', 'human', 'open'].includes(conversation.status) && !isNewConversation;
+        // Si el estatus es 'human', NUNCA intervenimos.
+        // Si la IA está apagada, la sesión NO está activa para el bot (dejamos que las keywords la revivan).
+        const isActiveSession = !isNewConversation && (conversation.status === 'human' || conversation.ai_enabled);
 
         if (isActiveSession) {
           console.log(`[webhook] Keyword "${matched.keyword}" ignored because conversation is already active. AI will handle it.`)
         } else {
-          // Vincular flujo nuevo a la conversación
+          // Vincular flujo nuevo a la conversación y reactivar la IA
           await supabase.from('conversations')
-            .update({ flow_id: matched.flow_id, status: 'bot' })
+            .update({ flow_id: matched.flow_id, status: 'bot', ai_enabled: true })
             .eq('id', conversation.id)
           
           console.log(`[webhook] Keyword "${matched.keyword}" → executing flow "${(matched.flows as any)?.name}"`)
