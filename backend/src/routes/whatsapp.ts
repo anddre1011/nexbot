@@ -540,7 +540,8 @@ async function handleImage(
   const matchedConversion = findConversionForAmount(paymentConversions, pendingSale?.amount ?? validation.amount)
 
   if (!activeFlow || !matchedConversion) {
-    return `Pago leído por Bs ${validation.amount ?? 'sin monto'}, pero no encontré una conversión/producto configurado con ese monto. Te paso con un asesor para revisarlo.`
+    await saveUnassignedPayment(tenantId, contactId, conversationId, validation.amount)
+    return buildUnassignedPaymentReply(validation.amount, paymentConversions)
   }
 
   const success = await executeConversionFlow(
@@ -589,6 +590,69 @@ function findConversionForAmount(
     const price = Number(conversion.products?.price ?? 0)
     return price > 0 && Math.abs(price - numericAmount) <= Math.max(1, price * 0.05)
   }) ?? null
+}
+
+async function saveUnassignedPayment(
+  tenantId: string,
+  contactId: string,
+  conversationId: string,
+  amount: number | null
+) {
+  if (!amount || amount <= 0) return
+
+  const { data: existing } = await supabase
+    .from('sales')
+    .select('id')
+    .eq('tenant_id', tenantId)
+    .eq('contact_id', contactId)
+    .eq('status', 'pending')
+    .eq('product', 'Pago sin asignar')
+    .eq('amount', amount)
+    .limit(1)
+    .maybeSingle()
+
+  if (existing?.id) return
+
+  const { data: sale } = await supabase.from('sales').insert({
+    tenant_id: tenantId,
+    contact_id: contactId,
+    product: 'Pago sin asignar',
+    amount,
+    status: 'pending',
+  }).select('id').single()
+
+  if (sale?.id) {
+    await propagateCampaignToSale(sale.id, conversationId)
+  }
+}
+
+function buildUnassignedPaymentReply(
+  amount: number | null,
+  conversions: PaymentConversion[]
+): string {
+  const paid = Number(amount ?? 0)
+  if (!paid) return 'Leí tu comprobante, pero no pude identificar el monto. Mándame una captura más clara donde se vea el total.'
+
+  const products = conversions
+    .map((conversion) => conversion.products)
+    .filter((product): product is { name: string; price: number } => !!product && Number(product.price) > 0)
+    .sort((a, b) => Number(a.price) - Number(b.price))
+
+  const covered = products.filter((product) => Number(product.price) <= paid)
+  const upgrades = products.filter((product) => Number(product.price) > paid)
+
+  if (covered.length || upgrades.length) {
+    const coveredText = covered.length
+      ? `Puedo activarte ${covered.map((p) => `${p.name} de Bs ${Number(p.price)}`).join(' o ')}.`
+      : ''
+    const upgradeText = upgrades.length
+      ? `Si quieres ${upgrades[0].name}, completa Bs ${Number(upgrades[0].price) - paid}.`
+      : ''
+
+    return `Fiera, recibí tu pago de Bs ${paid}. ${coveredText} ${upgradeText} ¿Cuál opción quieres que active?`.replace(/\s+/g, ' ').trim()
+  }
+
+  return `Fiera, recibí tu pago de Bs ${paid}, pero no tengo un producto configurado para ese monto. ¿Qué producto quieres que te active?`
 }
 
 async function maybeCreatePendingSale(
