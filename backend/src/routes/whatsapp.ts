@@ -331,12 +331,10 @@ async function processMessage(params: {
   // 7g. Detectar descalificación → kanban disqualified + desactivar IA
   const disqualifyKeywords = [
     'no me interesa', 'no quiero', 'no gracias', 'déjame en paz',
-    'es una estafa', 'es un engaño', 'es estafa', 'es engaño',
-    'estafa', 'fraude', 'engaño', 'mentira', 'mentiras',
     'no necesito', 'basta', 'para de escribir', 'no me escribas',
     'no me molestes', 'me molesta', 'me tiene harto', 'spameando',
     'no me interesa para nada', 'paso', 'no paso', 'no compro',
-    'reportar', 'voy a reportar', 'es falso', 'fake',
+    'reportar', 'voy a reportar',
   ]
   const inboundNorm = (inboundContent ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
   if (disqualifyKeywords.some(kw => inboundNorm.includes(kw.normalize('NFD').replace(/[̀-ͯ]/g, '')))) {
