@@ -63,6 +63,7 @@ export default function ConexionPage() {
           phone_number_id:      cleanPhoneId,
           meta_token:           data.meta_token ?? '',
           webhook_verify_token: data.webhook_verify_token ?? '',
+          waba_id:              '',
         })
 
         // Si ya tiene token y phone_id, está conectado

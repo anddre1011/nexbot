@@ -2,6 +2,8 @@ import { supabase } from './supabase'
 
 interface MetaReferral {
   source?: string       // URL del anuncio
+  source_url?: string
+  source_id?: string
   type?: string         // 'AD' | 'POST' | ...
   headline?: string     // título del anuncio
   ad_id?: string        // ID del anuncio en Meta
@@ -10,6 +12,7 @@ interface MetaReferral {
 
 interface ResolvedCampaign {
   campaignId: string | null
+  flowId: string | null
   ctwaClid: string | null
 }
 
@@ -21,12 +24,12 @@ export async function resolveCampaign(
 ): Promise<ResolvedCampaign> {
   const referral = rawMessage.referral as MetaReferral | undefined
 
-  if (!referral?.ad_id && !referral?.source) {
-    return { campaignId: null, ctwaClid: null }
+  if (!referral?.ad_id && !referral?.source_id && !referral?.source && !referral?.source_url) {
+    return { campaignId: null, flowId: null, ctwaClid: null }
   }
 
-  const metaAdId  = referral.ad_id   ?? null
-  const source    = referral.source  ?? null
+  const metaAdId  = referral.ad_id ?? referral.source_id ?? null
+  const source    = referral.source ?? referral.source_url ?? null
   const headline  = referral.headline ?? metaAdId ?? 'Campaña Meta'
   const ctwaClid  = referral.ctwa_clid ?? null
 
@@ -39,7 +42,10 @@ export async function resolveCampaign(
       .eq('meta_ad_id', metaAdId)
       .single()
 
-    if (existing) return { campaignId: existing.id, ctwaClid }
+    if (existing) {
+      const flowId = await resolveAutomationFlow(tenantId, metaAdId, source)
+      return { campaignId: existing.id, flowId, ctwaClid }
+    }
   }
 
   // No existe → crear campaña automáticamente
@@ -56,11 +62,45 @@ export async function resolveCampaign(
 
   if (error) {
     console.error('[campaigns] create error:', error.message)
-    return { campaignId: null, ctwaClid }
+    return { campaignId: null, flowId: null, ctwaClid }
   }
 
   console.log(`[campaigns] auto-created campaign "${headline}" (ad_id: ${metaAdId})`)
-  return { campaignId: created.id, ctwaClid }
+  const flowId = await resolveAutomationFlow(tenantId, metaAdId, source)
+  return { campaignId: created.id, flowId, ctwaClid }
+}
+
+async function resolveAutomationFlow(
+  tenantId: string,
+  metaAdId: string | null,
+  source: string | null
+): Promise<string | null> {
+  const ids = [metaAdId, source].filter(Boolean) as string[]
+  if (!ids.length) return null
+
+  const { data } = await supabase
+    .from('automation_campaigns')
+    .select('id, flow_id, executions, meta_ad_source_id, source_ids')
+    .eq('tenant_id', tenantId)
+    .eq('active', true)
+
+  const match = (data ?? []).find((item) => {
+    const sources = [
+      item.meta_ad_source_id,
+      ...((item.source_ids as string[] | null) ?? []),
+    ].filter(Boolean)
+
+    return ids.some((id) => sources.includes(id))
+  })
+
+  if (!match?.flow_id) return null
+
+  await supabase
+    .from('automation_campaigns')
+    .update({ executions: (match.executions ?? 0) + 1 })
+    .eq('id', match.id)
+
+  return match.flow_id as string
 }
 
 // Vincula una conversación a una campaña si aún no tiene una asignada.

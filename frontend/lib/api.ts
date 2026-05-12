@@ -1,6 +1,6 @@
 import { createClient } from './supabase/client'
 
-const BASE = 'https://nexbot.pro'
+const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'
 
 async function getToken(): Promise<string | null> {
   const supabase = createClient()

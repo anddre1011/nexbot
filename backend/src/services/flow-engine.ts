@@ -7,6 +7,7 @@ import {
   sendDocumentMessage,
   type TenantCredentials,
 } from './whatsapp'
+import { propagateCampaignToSale } from './campaigns'
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 interface FlowStep {
@@ -161,14 +162,17 @@ export async function executeConversionFlow(
 
     // 2. Vincular producto al contacto (registrar venta)
     if (conv.product_id && conv.products) {
-      await supabase.from('sales').insert({
+      const { data: sale } = await supabase.from('sales').insert({
         tenant_id: tenantId,
         contact_id: contactId,
         product: conv.products.name,
         amount: conv.products.price,
         status: 'confirmed',
-        campaign_id: null, // se propaga desde la conversación
-      })
+      }).select('id').single()
+
+      if (sale?.id) {
+        await propagateCampaignToSale(sale.id, conversationId)
+      }
 
       // 3. Entregar producto automáticamente si tiene delivery_url
       if (conv.delivery_enabled && conv.products.delivery_url) {
@@ -214,15 +218,7 @@ export async function resolveMediaVars(text: string, tenantId: string): Promise<
     const varName = match[1]
     const fullVar = `{{media:${varName}}}`
 
-    const { data: mediaRows2 } = await supabase
-      .from('media')
-      .select('url, type')
-      .eq('tenant_id', tenantId)
-      .eq('variable', fullVar)
-      .order('created_at', { ascending: false })
-      .limit(1)
-
-    const mediaItem2 = Array.isArray(mediaRows2) ? mediaRows2[0] : mediaRows2
+    const mediaItem2 = await findMediaByVariable(tenantId, varName)
     if (mediaItem2?.url) {
       resolved = resolved.replace(fullVar, mediaItem2.url)
     }
@@ -258,10 +254,10 @@ export async function resolveMediaTags(
   text: string,
   tenantId: string
 ): Promise<{
-  parts: Array<{ type: 'text' | 'image' | 'video' | 'audio'; content: string }>
+  parts: Array<{ type: 'text' | 'image' | 'video' | 'audio' | 'document'; content: string }>
 }> {
   const regex = /\{\{\s*media:\s*([^}]+?)\s*\}\}/g
-  const parts: Array<{ type: 'text' | 'image' | 'video' | 'audio'; content: string }> = []
+  const parts: Array<{ type: 'text' | 'image' | 'video' | 'audio' | 'document'; content: string }> = []
 
   let lastIndex = 0
   const matches = [...text.matchAll(regex)]
@@ -271,19 +267,12 @@ export async function resolveMediaTags(
     if (before) parts.push({ type: 'text', content: before })
 
     const varName = match[1]
-    const fullVar = `{{media:${varName}}}`
-
-    const { data: mediaRows } = await supabase
-      .from('media')
-      .select('url, type')
-      .eq('tenant_id', tenantId)
-      .eq('variable', fullVar)
-      .order('created_at', { ascending: false })
-      .limit(1)
-
-    const mediaItem = Array.isArray(mediaRows) ? mediaRows[0] : mediaRows
+    const mediaItem = await findMediaByVariable(tenantId, varName)
     if (mediaItem?.url) {
-      parts.push({ type: mediaItem.type as 'image' | 'video' | 'audio', content: mediaItem.url })
+      const mediaType = mediaItem.type === 'file' ? 'document' : mediaItem.type
+      if (['image', 'video', 'audio', 'document'].includes(mediaType)) {
+        parts.push({ type: mediaType as 'image' | 'video' | 'audio' | 'document', content: mediaItem.url })
+      }
     }
 
     lastIndex = (match.index ?? 0) + match[0].length
@@ -319,6 +308,23 @@ export async function getActiveFlow(tenantId: string): Promise<{
   return data
 }
 
+export async function getFlowById(flowId: string, tenantId: string): Promise<{
+  id: string
+  name: string
+  type: string
+  model: string
+  system_prompt: string | null
+} | null> {
+  const { data } = await supabase
+    .from('flows')
+    .select('id, name, type, model, system_prompt')
+    .eq('id', flowId)
+    .eq('tenant_id', tenantId)
+    .maybeSingle()
+
+  return data
+}
+
 // ─── Cargar reglas de inactividad de un flujo ─────────────────────────────────
 export async function getInactivityRules(flowId: string): Promise<FlowInactivityRule[]> {
   const { data } = await supabase
@@ -342,4 +348,28 @@ async function saveOutbound(conversationId: string, type: string, content: strin
     type,
     content,
   })
+}
+
+async function findMediaByVariable(
+  tenantId: string,
+  rawName: string
+): Promise<{ url: string; type: string } | null> {
+  const cleanName = rawName.trim()
+  const normalized = cleanName.replace(/[^a-zA-Z0-9_-]/g, '_')
+  const candidates = [
+    `{{media:${cleanName}}}`,
+    `{{media:${normalized}}}`,
+    `{{media:${normalized.toLowerCase()}}}`,
+  ]
+
+  const { data } = await supabase
+    .from('media')
+    .select('url, type')
+    .eq('tenant_id', tenantId)
+    .in('variable', [...new Set(candidates)])
+    .order('created_at', { ascending: false })
+    .limit(1)
+
+  const item = Array.isArray(data) ? data[0] : data
+  return item ?? null
 }

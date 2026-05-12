@@ -9,6 +9,14 @@ router.use(requireAuth)
 // Campos sensibles — se devuelven enmascarados al frontend
 const SENSITIVE = ['openai_key', 'meta_token', 'webhook_verify_token', 'deepseek_key'] as const
 type SensitiveField = (typeof SENSITIVE)[number]
+type MetaGraphResponse = {
+  id?: string
+  account_id?: string
+  success?: boolean
+  verified_name?: string
+  display_phone_number?: string
+  error?: { message?: string }
+}
 
 function maskSensitive(tenant: Record<string, unknown>) {
   const out = { ...tenant }
@@ -109,7 +117,7 @@ router.post('/connect-whatsapp', async (req, res) => {
         `https://graph.facebook.com/v20.0/${phone_number_id}?fields=verified_name,display_phone_number`,
         { headers: { Authorization: `Bearer ${meta_token}` } }
       )
-      const tokenData = await tokenCheck.json()
+      const tokenData = await tokenCheck.json() as MetaGraphResponse
 
       if (!tokenCheck.ok) {
         return res.status(400).json({
@@ -138,7 +146,7 @@ router.post('/connect-whatsapp', async (req, res) => {
           `https://graph.facebook.com/v20.0/${phone_number_id}?fields=account_id`,
           { headers: { Authorization: `Bearer ${meta_token}` } }
         )
-        const wabaData = await wabaRes.json()
+        const wabaData = await wabaRes.json() as MetaGraphResponse
 
         if (wabaData.account_id) {
           wabaId = wabaData.account_id
@@ -148,7 +156,7 @@ router.post('/connect-whatsapp', async (req, res) => {
             `https://graph.facebook.com/v20.0/${phone_number_id}/whatsapp_business_account`,
             { headers: { Authorization: `Bearer ${meta_token}` } }
           )
-          const sharedData = await sharedRes.json()
+          const sharedData = await sharedRes.json() as MetaGraphResponse
           wabaId = sharedData?.id ?? null
 
           if (wabaId) {
@@ -175,7 +183,7 @@ router.post('/connect-whatsapp', async (req, res) => {
             },
           }
         )
-        const subData = await subRes.json()
+        const subData = await subRes.json() as MetaGraphResponse
 
         if (subData.success) {
           results.push({ step: 'subscribe_webhooks', status: 'ok', detail: 'App suscrita a webhooks correctamente' })
@@ -206,7 +214,7 @@ router.post('/connect-whatsapp', async (req, res) => {
           body: JSON.stringify({ messaging_product: 'whatsapp', pin: '123456' }),
         }
       )
-      const regData = await regRes.json()
+      const regData = await regRes.json() as MetaGraphResponse
 
       if (regData.success || regRes.ok) {
         results.push({ step: 'register_phone', status: 'ok', detail: 'Número registrado en Meta API' })

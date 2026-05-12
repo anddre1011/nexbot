@@ -15,7 +15,7 @@ interface ExtractedVoucher {
 // 1. Gemini Flash (gratis, excelente para recibos)
 // 2. OpenAI GPT-4o (si tiene saldo)
 // 3. Sin visión → aceptar imagen directamente
-function getVisionClient(): { client: OpenAI; model: string } | null {
+function getVisionClient(openaiKeyOverride?: string | null): { client: OpenAI; model: string } | null {
   const geminiKey = process.env.GEMINI_API_KEY
   if (geminiKey) {
     return {
@@ -27,7 +27,7 @@ function getVisionClient(): { client: OpenAI; model: string } | null {
     }
   }
 
-  const openaiKey = process.env.OPENAI_API_KEY
+  const openaiKey = openaiKeyOverride || process.env.OPENAI_API_KEY
   if (openaiKey) {
     return {
       client: new OpenAI({ apiKey: openaiKey }),
@@ -38,8 +38,8 @@ function getVisionClient(): { client: OpenAI; model: string } | null {
   return null  // Sin modelo de visión disponible
 }
 
-async function extractVoucherData(imageUrl: string): Promise<ExtractedVoucher> {
-  const vision = getVisionClient()
+async function extractVoucherData(imageUrl: string, openaiKey?: string | null): Promise<ExtractedVoucher> {
+  const vision = getVisionClient(openaiKey)
 
   if (!vision) {
     console.warn('[validator] No vision model configured — accepting image without verification')
@@ -80,9 +80,10 @@ async function extractVoucherData(imageUrl: string): Promise<ExtractedVoucher> {
 
 export async function validateVoucher(
   imageUrl: string,
-  expectedAmount: number
+  expectedAmount: number,
+  openaiKey?: string | null
 ): Promise<VoucherValidationResult> {
-  const data = await extractVoucherData(imageUrl)
+  const data = await extractVoucherData(imageUrl, openaiKey)
 
   if (!data.is_payment_voucher) {
     return { valid: false, isVoucher: false, amount: null, reference: null, bank: null, date: null, message: '' }
