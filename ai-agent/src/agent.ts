@@ -65,7 +65,7 @@ export async function runAgent(input: AgentInput): Promise<AgentResponse> {
 
   const messages: ChatMessage[] = [
     { role: 'system', content: systemPrompt },
-    ...history.slice(-6),
+    ...history.slice(-15),
     { role: 'user', content: incomingMessage },
   ]
 
