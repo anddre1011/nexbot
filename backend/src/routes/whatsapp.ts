@@ -168,7 +168,9 @@ async function processMessage(params: {
       if (matched?.flow_id && matched.flows) {
         keywordFlow = matched.flows as unknown as FlowInfo
         
-        const isActiveSession = ['bot', 'human'].includes(conversation.status);
+        // Ejecutar flujo inicial SOLO si es una sesión inactiva/nueva
+        // Consideramos sesión inactiva si fue recién creada (_new) o si el estatus no es de charlar
+        const isActiveSession = ['bot', 'human', 'open'].includes(conversation.status) && !isNewConversation;
 
         if (isActiveSession) {
           console.log(`[webhook] Keyword "${matched.keyword}" ignored because conversation is already active. AI will handle it.`)
