@@ -242,6 +242,19 @@ async function processMessage(params: {
     return // No responder — IA desactivada (contacto convertido o descalificado)
   }
 
+  if (type === 'text' && activeFlow) {
+    const handledChoice = await handleUnassignedPaymentChoice(
+      activeFlow.id,
+      tenantId,
+      contact.id,
+      from,
+      conversation.id,
+      inboundContent,
+      creds,
+    )
+    if (handledChoice) return
+  }
+
   // 7c. Procesar según tipo de mensaje
   let replyText: string
 
@@ -712,6 +725,66 @@ function inferConversionFromText(
       || (name.includes('basico') && normalized.includes('basico'))
       || (price > 0 && new RegExp(`\\b${price}(?:\\.00)?\\b`).test(normalized))
   }) ?? null
+}
+
+async function handleUnassignedPaymentChoice(
+  flowId: string,
+  tenantId: string,
+  contactId: string,
+  contactPhone: string,
+  conversationId: string,
+  inboundText: string,
+  creds?: { metaToken: string | null; phoneNumberId: string | null },
+): Promise<boolean> {
+  const { data: pendingPayment } = await supabase
+    .from('sales')
+    .select('id, amount')
+    .eq('tenant_id', tenantId)
+    .eq('contact_id', contactId)
+    .eq('status', 'pending')
+    .eq('product', 'Pago sin asignar')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (!pendingPayment?.id) return false
+
+  const conversions = await getPaymentConversions(flowId)
+  const selected = inferConversionFromText(conversions, inboundText)
+  if (!selected?.products) return false
+
+  const paid = Number(pendingPayment.amount ?? 0)
+  const price = Number(selected.products.price ?? 0)
+
+  if (price > paid) {
+    const diff = price - paid
+    const msg = `De una, para ${selected.products.name} falta completar Bs ${diff}. Mándame el comprobante de la diferencia y te activo todo al tiro.`
+    await sendTextMessage(contactPhone, msg, creds)
+    await saveOutbound(conversationId, 'text', msg)
+    return true
+  }
+
+  await supabase.from('sales').delete().eq('id', pendingPayment.id)
+
+  const success = await executeConversionFlow(
+    flowId,
+    selected.function_name,
+    contactId,
+    contactPhone,
+    conversationId,
+    tenantId,
+    creds,
+  )
+
+  if (success) {
+    clearInactivityTimers(conversationId)
+    return true
+  }
+
+  const msg = 'Pude ubicar tu pago, pero no pude activar la entrega automática. Te paso con un asesor para resolverlo.'
+  await sendTextMessage(contactPhone, msg, creds)
+  await saveOutbound(conversationId, 'text', msg)
+  return true
 }
 
 async function upsertContact(phone: string, tenantId: string) {

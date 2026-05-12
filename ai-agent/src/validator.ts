@@ -96,6 +96,28 @@ export async function validateVoucher(
     }
   }
 
+  const today = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/La_Paz' }))
+  const todayStr = today.toISOString().split('T')[0]
+  const yesterday = new Date(today)
+  yesterday.setDate(yesterday.getDate() - 1)
+  const yesterdayStr = yesterday.toISOString().split('T')[0]
+
+  if (!data.date) {
+    return {
+      valid: false, isVoucher: true,
+      amount: data.amount, reference: data.reference, bank: data.bank, date: null,
+      message: 'No pude leer la fecha del comprobante. Mándame una captura donde se vea claramente la fecha del pago.',
+    }
+  }
+
+  if (data.date !== todayStr && data.date !== yesterdayStr) {
+    return {
+      valid: false, isVoucher: true,
+      amount: data.amount, reference: data.reference, bank: data.bank, date: data.date,
+      message: `El comprobante tiene fecha de ${data.date}. Solo acepto pagos de hoy o de ayer. Mándame el comprobante actual para activarte.`,
+    }
+  }
+
   if (expectedAmount === 0) {
     return {
       valid: true, isVoucher: true,
@@ -112,26 +134,6 @@ export async function validateVoucher(
       valid: false, isVoucher: true,
       amount: data.amount, reference: data.reference, bank: data.bank, date: data.date,
       message: `El monto del comprobante (Bs ${data.amount}) no coincide con el precio (Bs ${expectedAmount}). Verifica que hayas enviado el monto correcto.`,
-    }
-  }
-
-  // VALIDACIÓN DE FECHA (Bolivia time)
-  if (data.date) {
-    const today = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/La_Paz' }))
-    const todayStr = today.toISOString().split('T')[0]
-    
-    // Calcular ayer
-    const yesterday = new Date(today)
-    yesterday.setDate(yesterday.getDate() - 1)
-    const yesterdayStr = yesterday.toISOString().split('T')[0]
-
-    // Solo aceptar pagos de hoy o ayer máximo
-    if (data.date !== todayStr && data.date !== yesterdayStr) {
-      return {
-        valid: false, isVoucher: true,
-        amount: data.amount, reference: data.reference, bank: data.bank, date: data.date,
-        message: `El comprobante tiene fecha de ${data.date}. Solo se aceptan pagos realizados hoy. Por favor, realiza el pago actual o envía el comprobante correcto.`,
-      }
     }
   }
 
