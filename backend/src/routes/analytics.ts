@@ -75,7 +75,7 @@ router.get('/today', async (_req, res) => {
 })
 
 // ─── GET /api/analytics/campaigns ────────────────────────────────────────────
-router.get('/campaigns', async (_req, res) => {
+router.get('/campaigns', async (req, res) => {
   const tenantId = await getTenantId(res.locals.user.id)
   if (!tenantId) { res.status(404).json({ error: 'Tenant not found' }); return }
 
@@ -88,12 +88,19 @@ router.get('/campaigns', async (_req, res) => {
   if (error) { res.status(500).json({ error: error.message }); return }
 
   // Traer ventas confirmadas con campaign_id en una sola query
-  const { data: sales } = await supabase
+  let salesQuery = supabase
     .from('sales')
-    .select('campaign_id, amount')
+    .select('campaign_id, amount, product, status, created_at')
     .eq('tenant_id', tenantId)
-    .eq('status', 'confirmed')
     .not('campaign_id', 'is', null)
+  if (req.query.from) salesQuery = salesQuery.gte('created_at', String(req.query.from))
+  if (req.query.to) salesQuery = salesQuery.lte('created_at', String(req.query.to))
+  if (req.query.product) salesQuery = salesQuery.eq('product', String(req.query.product))
+  if (req.query.campaign_id) salesQuery = salesQuery.eq('campaign_id', String(req.query.campaign_id))
+  if (req.query.status) salesQuery = salesQuery.eq('status', String(req.query.status))
+  else salesQuery = salesQuery.eq('status', 'confirmed')
+
+  const { data: sales } = await salesQuery
 
   // Agrupar en JS para evitar N+1 queries
   const salesByCampaign = (sales ?? []).reduce<Record<string, { count: number; revenue: number }>>(
@@ -159,10 +166,31 @@ router.get('/overview', async (req, res) => {
 
   const from = (req.query.from as string) || todayISO()
   const to   = (req.query.to   as string) || new Date().toISOString()
+  const product = req.query.product as string | undefined
+  const campaignId = req.query.campaign_id as string | undefined
+  const status = req.query.status as string | undefined
+
+  let salesQuery = supabase
+    .from('sales')
+    .select('amount, status, product, campaign_id, contact_id')
+    .eq('tenant_id', tenantId)
+    .gte('created_at', from)
+    .lte('created_at', to)
+  if (product) salesQuery = salesQuery.eq('product', product)
+  if (campaignId) salesQuery = salesQuery.eq('campaign_id', campaignId)
+  if (status) salesQuery = salesQuery.eq('status', status)
+
+  let convsQuery = supabase
+    .from('conversations')
+    .select('id, status')
+    .eq('tenant_id', tenantId)
+    .gte('created_at', from)
+    .lte('created_at', to)
+  if (campaignId) convsQuery = convsQuery.eq('campaign_id', campaignId)
 
   const [convsRes, salesRes, contactsRes, flowsRes] = await Promise.all([
-    supabase.from('conversations').select('id, status').eq('tenant_id', tenantId).gte('created_at', from).lte('created_at', to),
-    supabase.from('sales').select('amount, status, product, campaign_id').eq('tenant_id', tenantId).gte('created_at', from).lte('created_at', to),
+    convsQuery,
+    salesQuery,
     supabase.from('contacts').select('id', { count: 'exact', head: true }).eq('tenant_id', tenantId).gte('created_at', from).lte('created_at', to),
     supabase.from('flows').select('executions').eq('tenant_id', tenantId),
   ])
@@ -205,15 +233,22 @@ router.get('/kanban-distribution', async (_req, res) => {
 })
 
 // ─── GET /api/analytics/top-products ─────────────────────────────────────────
-router.get('/top-products', async (_req, res) => {
+router.get('/top-products', async (req, res) => {
   const tenantId = await getTenantId(res.locals.user.id)
   if (!tenantId) { res.status(404).json({ error: 'Tenant not found' }); return }
 
-  const { data: sales } = await supabase
+  let query = supabase
     .from('sales')
-    .select('product, amount')
+    .select('product, amount, campaign_id, status, created_at')
     .eq('tenant_id', tenantId)
-    .eq('status', 'confirmed')
+  if (req.query.from) query = query.gte('created_at', String(req.query.from))
+  if (req.query.to) query = query.lte('created_at', String(req.query.to))
+  if (req.query.product) query = query.eq('product', String(req.query.product))
+  if (req.query.campaign_id) query = query.eq('campaign_id', String(req.query.campaign_id))
+  if (req.query.status) query = query.eq('status', String(req.query.status))
+  else query = query.eq('status', 'confirmed')
+
+  const { data: sales } = await query
 
   const byProduct: Record<string, { count: number; revenue: number }> = {}
   for (const s of sales ?? []) {
@@ -256,7 +291,7 @@ router.get('/contacts-evolution', async (req, res) => {
 })
 
 // ─── GET /api/analytics/leads-by-campaign ────────────────────────────────────
-router.get('/leads-by-campaign', async (_req, res) => {
+router.get('/leads-by-campaign', async (req, res) => {
   const tenantId = await getTenantId(res.locals.user.id)
   if (!tenantId) { res.status(404).json({ error: 'Tenant not found' }); return }
 
@@ -265,16 +300,28 @@ router.get('/leads-by-campaign', async (_req, res) => {
     .select('id, name')
     .eq('tenant_id', tenantId)
 
-  const { data: sales } = await supabase
+  let salesQuery = supabase
     .from('sales')
-    .select('campaign_id, amount, status')
+    .select('campaign_id, amount, status, product, created_at')
     .eq('tenant_id', tenantId)
+  if (req.query.from) salesQuery = salesQuery.gte('created_at', String(req.query.from))
+  if (req.query.to) salesQuery = salesQuery.lte('created_at', String(req.query.to))
+  if (req.query.product) salesQuery = salesQuery.eq('product', String(req.query.product))
+  if (req.query.campaign_id) salesQuery = salesQuery.eq('campaign_id', String(req.query.campaign_id))
+  if (req.query.status) salesQuery = salesQuery.eq('status', String(req.query.status))
 
-  const { data: convs } = await supabase
+  const { data: sales } = await salesQuery
+
+  let convQuery = supabase
     .from('conversations')
-    .select('campaign_id')
+    .select('campaign_id, created_at')
     .eq('tenant_id', tenantId)
     .not('campaign_id', 'is', null)
+  if (req.query.from) convQuery = convQuery.gte('created_at', String(req.query.from))
+  if (req.query.to) convQuery = convQuery.lte('created_at', String(req.query.to))
+  if (req.query.campaign_id) convQuery = convQuery.eq('campaign_id', String(req.query.campaign_id))
+
+  const { data: convs } = await convQuery
 
   const leadsByC: Record<string, number> = {}
   for (const c of convs ?? []) { if (c.campaign_id) leadsByC[c.campaign_id] = (leadsByC[c.campaign_id] ?? 0) + 1 }

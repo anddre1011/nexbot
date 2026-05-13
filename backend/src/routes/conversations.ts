@@ -26,12 +26,55 @@ router.get('/', async (req, res) => {
 
   if (req.query.view === 'kanban') {
     const dateFrom = req.query.date_from as string | undefined
-    const { data, error } = await supabase.rpc('get_kanban_conversations', {
-      p_tenant_id: tenantId,
-      p_date_from: dateFrom ?? null,
-    })
+    let query = supabase
+      .from('conversations')
+      .select('id, status, contact_id, campaign_id, created_at, contacts!inner(id, phone, name, kanban_stage, last_message_at), campaigns(name)')
+      .eq('tenant_id', tenantId)
+      .order('created_at', { ascending: false })
+
+    if (dateFrom) query = query.gte('created_at', dateFrom)
+
+    const { data, error } = await query
     if (error) { res.status(500).json({ error: error.message }); return }
-    return res.json(data)
+
+    const contactIds = [...new Set((data ?? []).map((row: any) => row.contact_id).filter(Boolean))]
+    const { data: sales } = contactIds.length
+      ? await supabase
+          .from('sales')
+          .select('contact_id, amount, created_at')
+          .eq('tenant_id', tenantId)
+          .eq('status', 'confirmed')
+          .in('contact_id', contactIds)
+          .order('created_at', { ascending: false })
+      : { data: [] as any[] }
+
+    const latestSaleByContact = new Map<string, number>()
+    for (const sale of sales ?? []) {
+      if (!latestSaleByContact.has(sale.contact_id)) latestSaleByContact.set(sale.contact_id, Number(sale.amount))
+    }
+
+    const kanbanStatuses = new Set(['human', 'attending', 'converted', 'disqualified', 'abandoned'])
+    const rows = (data ?? []).map((row: any) => {
+      const contact = Array.isArray(row.contacts) ? row.contacts[0] : row.contacts
+      const campaign = Array.isArray(row.campaigns) ? row.campaigns[0] : row.campaigns
+      const stage = contact?.kanban_stage && kanbanStatuses.has(contact.kanban_stage)
+        ? contact.kanban_stage
+        : row.status
+      return {
+        id: row.id,
+        status: stage,
+        contact_id: row.contact_id,
+        contact_phone: contact?.phone ?? '',
+        contact_name: contact?.name ?? null,
+        campaign_name: campaign?.name ?? null,
+        campaign_id: row.campaign_id,
+        last_message_at: contact?.last_message_at ?? null,
+        sale_amount: latestSaleByContact.get(row.contact_id) ?? null,
+        created_at: row.created_at,
+      }
+    }).filter((row) => kanbanStatuses.has(row.status))
+
+    return res.json(rows)
   }
 
   const { data, error } = await supabase.rpc('get_conversation_list', {
@@ -303,14 +346,36 @@ router.patch('/:id/status', async (req, res) => {
     return
   }
 
+  const tenantId = await getTenantId(res.locals.user.id)
+  if (!tenantId) { res.status(404).json({ error: 'Tenant not found' }); return }
+
   const { data, error } = await supabase
     .from('conversations')
     .update({ status })
     .eq('id', req.params.id)
+    .eq('tenant_id', tenantId)
     .select('id, status')
     .single()
 
   if (error) { res.status(500).json({ error: error.message }); return }
+
+  if (['open', 'human', 'attending', 'converted', 'disqualified', 'abandoned'].includes(status)) {
+    const { data: conv } = await supabase
+      .from('conversations')
+      .select('contact_id')
+      .eq('id', req.params.id)
+      .eq('tenant_id', tenantId)
+      .single()
+
+    if (conv?.contact_id) {
+      await supabase
+        .from('contacts')
+        .update({ kanban_stage: status })
+        .eq('id', conv.contact_id)
+        .eq('tenant_id', tenantId)
+    }
+  }
+
   res.json(data)
 })
 

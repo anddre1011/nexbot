@@ -15,10 +15,21 @@ interface LeadByCampaign { name: string; leads: number; conversions: number; rat
 interface TopProduct { name: string; count: number; revenue: number }
 interface ContactEvolution { date: string; count: number }
 interface Toast { id: string; message: string }
+interface SaleFilterOption { id: string; product: string; campaign_id: string | null; campaigns?: { name: string } | null }
+type DateFilter = 'today' | 'week' | 'month' | 'all'
 
 const KANBAN_COLORS: Record<string, string> = {
   bot: '#3b82f6', open: '#3b82f6', human: '#a855f7', closed: '#f97316',
   converted: '#10b981', disqualified: '#ef4444', abandoned: '#f87171',
+}
+
+function rangeQuery(filter: DateFilter) {
+  if (filter === 'all') return ''
+  const d = new Date()
+  if (filter === 'today') d.setHours(0, 0, 0, 0)
+  if (filter === 'week') d.setDate(d.getDate() - 7)
+  if (filter === 'month') d.setDate(d.getDate() - 30)
+  return `from=${encodeURIComponent(d.toISOString())}&to=${encodeURIComponent(new Date().toISOString())}`
 }
 
 export default function DashboardPage() {
@@ -30,21 +41,38 @@ export default function DashboardPage() {
   const [kanbanDist, setKanbanDist] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
   const [toasts, setToasts] = useState<Toast[]>([])
+  const [dateFilter, setDateFilter] = useState<DateFilter>('today')
+  const [productFilter, setProductFilter] = useState('')
+  const [campaignFilter, setCampaignFilter] = useState('')
+  const [confirmedOnly, setConfirmedOnly] = useState(true)
+  const [saleOptions, setSaleOptions] = useState<SaleFilterOption[]>([])
 
   const fetchData = useCallback(async () => {
+    setLoading(true)
     try {
+      const params = new URLSearchParams(rangeQuery(dateFilter))
+      if (productFilter) params.set('product', productFilter)
+      if (campaignFilter) params.set('campaign_id', campaignFilter)
+      if (confirmedOnly) params.set('status', 'confirmed')
+      const qs = params.toString() ? `?${params.toString()}` : ''
       const [ov, camp, leads, prods, evo, kanban] = await Promise.all([
-        apiFetch<Overview>('/api/analytics/overview'),
-        apiFetch<Campaign[]>('/api/analytics/campaigns'),
-        apiFetch<LeadByCampaign[]>('/api/analytics/leads-by-campaign').catch(() => []),
-        apiFetch<TopProduct[]>('/api/analytics/top-products').catch(() => []),
-        apiFetch<ContactEvolution[]>('/api/analytics/contacts-evolution').catch(() => []),
+        apiFetch<Overview>(`/api/analytics/overview${qs}`),
+        apiFetch<Campaign[]>(`/api/analytics/campaigns${qs}`),
+        apiFetch<LeadByCampaign[]>(`/api/analytics/leads-by-campaign${qs}`).catch(() => []),
+        apiFetch<TopProduct[]>(`/api/analytics/top-products${qs}`).catch(() => []),
+        apiFetch<ContactEvolution[]>(`/api/analytics/contacts-evolution?days=${dateFilter === 'week' ? 7 : dateFilter === 'month' ? 30 : 1}`).catch(() => []),
         apiFetch<Record<string, number>>('/api/analytics/kanban-distribution').catch(() => ({})),
       ])
       setOverview(ov); setCampaigns(camp); setLeadsByCampaign(leads)
       setTopProducts(prods); setContactsEvo(evo); setKanbanDist(kanban)
     } catch (err) { console.error('[dashboard]', err) }
     finally { setLoading(false) }
+  }, [campaignFilter, confirmedOnly, dateFilter, productFilter])
+
+  useEffect(() => {
+    apiFetch<SaleFilterOption[]>('/api/sales')
+      .then(setSaleOptions)
+      .catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -80,6 +108,14 @@ export default function DashboardPage() {
 
   const kanbanData = Object.entries(kanbanDist).map(([name, value]) => ({ name, value }))
   const kanbanTotal = Object.values(kanbanDist).reduce((a, b) => a + b, 0)
+  const productOptions = [...new Set(saleOptions.map((s) => s.product).filter(Boolean))]
+  const campaignOptions = saleOptions
+    .filter((s) => s.campaign_id && s.campaigns?.name)
+    .reduce<{ id: string; name: string }[]>((acc, s) => {
+      if (!s.campaign_id || !s.campaigns?.name || acc.some((c) => c.id === s.campaign_id)) return acc
+      acc.push({ id: s.campaign_id, name: s.campaigns.name })
+      return acc
+    }, [])
   const L = loading
 
   return (
@@ -128,6 +164,38 @@ export default function DashboardPage() {
         <div>
           <h1 className="text-2xl font-bold text-white">Dashboard</h1>
           <p className="mt-1 text-sm text-gray-500">Sigue tus métricas y gestiona tu atención en tiempo real.</p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-white/5 bg-white/[0.03] p-3">
+          {(['today', 'week', 'month', 'all'] as DateFilter[]).map((f) => (
+            <button
+              key={f}
+              onClick={() => setDateFilter(f)}
+              className={`rounded-lg px-3 py-2 text-xs font-semibold transition ${
+                dateFilter === f ? 'bg-violet-600 text-white' : 'bg-white/5 text-gray-400 hover:text-white'
+              }`}
+            >
+              {f === 'today' ? 'Hoy' : f === 'week' ? '7 dias' : f === 'month' ? '30 dias' : 'Todo'}
+            </button>
+          ))}
+          <select value={productFilter} onChange={(e) => setProductFilter(e.target.value)}
+            className="rounded-lg border border-white/10 bg-[#141421] px-3 py-2 text-xs text-gray-300 outline-none">
+            <option value="">Todos los productos</option>
+            {productOptions.map((p) => <option key={p} value={p}>{p}</option>)}
+          </select>
+          <select value={campaignFilter} onChange={(e) => setCampaignFilter(e.target.value)}
+            className="rounded-lg border border-white/10 bg-[#141421] px-3 py-2 text-xs text-gray-300 outline-none">
+            <option value="">Todas las campaÃ±as</option>
+            {campaignOptions.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+          <button
+            onClick={() => setConfirmedOnly((v) => !v)}
+            className={`rounded-lg px-3 py-2 text-xs font-semibold transition ${
+              confirmedOnly ? 'bg-emerald-600 text-white' : 'bg-white/5 text-gray-400 hover:text-white'
+            }`}
+          >
+            Convertidos
+          </button>
         </div>
 
         {/* KPI Cards */}
