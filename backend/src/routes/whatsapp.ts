@@ -110,7 +110,7 @@ async function processMessage(params: {
   const contact = await upsertContact(from, tenantId)
 
   // 2. Extraer campaña del referral de Meta (solo presente en primer mensaje del click)
-  const { campaignId } = await resolveCampaign(raw, tenantId)
+  const { campaignId, metaAdId } = await resolveCampaign(raw, tenantId)
 
   // 3. Obtener o crear conversación abierta
   const conversation = await getOrCreateConversation(contact.id, tenantId)
@@ -120,6 +120,28 @@ async function processMessage(params: {
   // 4. Vincular campaña si la conversación aún no tiene una asignada
   if (campaignId) {
     await linkConversationToCampaign(conversation.id, campaignId)
+  }
+
+  const adFlow = metaAdId && !alreadyConverted
+    ? await getAutomationFlowByAdId(tenantId, metaAdId)
+    : null
+  if (adFlow) {
+    const isActiveSession = !isNewConversation && (conversation.status === 'human' || conversation.ai_enabled)
+    if (isActiveSession) {
+      console.log(`[webhook] Ad flow "${adFlow.name}" ignored because conversation is already active.`)
+    } else {
+      await supabase.from('conversations')
+        .update({ flow_id: adFlow.id, status: 'bot', ai_enabled: true, flow_step: 0 })
+        .eq('id', conversation.id)
+
+      await supabase.from('automation_campaigns')
+        .update({ executions: ((adFlow as any).executions ?? 0) + 1 })
+        .eq('id', adFlow.automation_campaign_id)
+
+      console.log(`[webhook] Meta ad ${metaAdId} -> executing flow "${adFlow.name}"`)
+      await executeWelcomeFlow(adFlow.id, from, conversation.id, tenantId, creds)
+      return
+    }
   }
 
   // 5. Guardar mensaje entrante (transcribir audio si aplica)
@@ -879,6 +901,39 @@ async function getOrCreateConversation(contactId: string, tenantId: string) {
 
   if (error) throw new Error(`getOrCreateConversation: ${error.message}`)
   return { ...data, _new: true }
+}
+
+async function getAutomationFlowByAdId(tenantId: string, metaAdId: string): Promise<{
+  id: string
+  name: string
+  type: string
+  model: string
+  system_prompt: string | null
+  automation_campaign_id: string
+  executions: number
+} | null> {
+  const { data } = await supabase
+    .from('automation_campaigns')
+    .select('id, executions, flows(id, name, type, model, system_prompt)')
+    .eq('tenant_id', tenantId)
+    .eq('active', true)
+    .eq('meta_ad_source_id', metaAdId)
+    .not('flow_id', 'is', null)
+    .limit(1)
+    .maybeSingle()
+
+  const flow = Array.isArray((data as any)?.flows) ? (data as any).flows[0] : (data as any)?.flows
+  if (!data || !flow?.id) return null
+
+  return {
+    id: flow.id,
+    name: flow.name,
+    type: flow.type,
+    model: flow.model,
+    system_prompt: flow.system_prompt,
+    automation_campaign_id: (data as any).id,
+    executions: (data as any).executions ?? 0,
+  }
 }
 
 async function getHistory(conversationId: string): Promise<ChatMessage[]> {

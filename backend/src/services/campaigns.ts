@@ -11,6 +11,7 @@ interface MetaReferral {
 interface ResolvedCampaign {
   campaignId: string | null
   ctwaClid: string | null
+  metaAdId: string | null
 }
 
 // Extrae datos de referral del payload de Meta y devuelve el campaign_id en Supabase.
@@ -22,7 +23,7 @@ export async function resolveCampaign(
   const referral = rawMessage.referral as MetaReferral | undefined
 
   if (!referral?.ad_id && !referral?.source) {
-    return { campaignId: null, ctwaClid: null }
+    return { campaignId: null, ctwaClid: null, metaAdId: null }
   }
 
   const metaAdId  = referral.ad_id   ?? null
@@ -39,7 +40,7 @@ export async function resolveCampaign(
       .eq('meta_ad_id', metaAdId)
       .single()
 
-    if (existing) return { campaignId: existing.id, ctwaClid }
+    if (existing) return { campaignId: existing.id, ctwaClid, metaAdId }
   }
 
   // No existe → crear campaña automáticamente
@@ -56,11 +57,11 @@ export async function resolveCampaign(
 
   if (error) {
     console.error('[campaigns] create error:', error.message)
-    return { campaignId: null, ctwaClid }
+    return { campaignId: null, ctwaClid, metaAdId }
   }
 
   console.log(`[campaigns] auto-created campaign "${headline}" (ad_id: ${metaAdId})`)
-  return { campaignId: created.id, ctwaClid }
+  return { campaignId: created.id, ctwaClid, metaAdId }
 }
 
 // Vincula una conversación a una campaña si aún no tiene una asignada.
