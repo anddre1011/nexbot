@@ -35,6 +35,12 @@ function getClient(model: string, apiKey?: string, deepseekKey?: string): { clie
   }
 }
 
+function deepSeekChatOptions(model: string) {
+  return isDeepSeek(model)
+    ? ({ extra_body: { thinking: { type: 'disabled' } } } as Record<string, unknown>)
+    : {}
+}
+
 async function detectIntent(
   message: string,
   model: string,
@@ -50,6 +56,7 @@ async function detectIntent(
       messages: [{ role: 'user', content: prompt }],
       temperature: 0,
       max_tokens: 60,
+      ...deepSeekChatOptions(model),
     })
     const raw = res.choices[0].message.content ?? '{}'
     const parsed = JSON.parse(raw)
@@ -94,6 +101,7 @@ export async function runAgent(input: AgentInput): Promise<AgentResponse> {
       frequency_penalty: 0.6,
       presence_penalty: 0.3,
       max_tokens: 400,
+      ...deepSeekChatOptions(model),
     })
 
     const reply = completion.choices[0].message.content?.trim()
