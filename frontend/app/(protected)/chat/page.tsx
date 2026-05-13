@@ -229,6 +229,15 @@ export default function ChatPage() {
     }
   }
 
+  async function handleTestReset() {
+    if (!selected) return
+    if (!confirm('Reset de prueba: se borrara este contacto con conversaciones, mensajes y ventas asociadas. Usalo solo para tests.')) return
+    await apiFetch(`/api/conversations/${selected.id}/test-reset`, { method: 'DELETE' })
+    setSelectedId(null)
+    setMessages([])
+    fetchConversations()
+  }
+
   const filtered = conversations.filter((c) => {
     const matchSearch =
       !search ||
@@ -666,7 +675,7 @@ export default function ChatPage() {
             <button
               onClick={async () => {
                 if (!confirm('¿Reiniciar esta conversación? Se borrarán todos los mensajes y la IA volverá a responder.')) return
-                await apiFetch(`/api/conversations/${selected.id}/reset`, { method: 'DELETE' })
+                await apiFetch(`/api/conversations/${selected.id}/reset-soft`, { method: 'DELETE' })
                 setMessages([])
                 fetchConversations()
               }}
@@ -674,6 +683,13 @@ export default function ChatPage() {
               className="w-full rounded-xl py-2 text-xs font-medium text-amber-400 hover:bg-amber-500/15 transition-colors"
             >
               🔄 Reiniciar conversación
+            </button>
+            <button
+              onClick={handleTestReset}
+              style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)' }}
+              className="w-full rounded-xl py-2 text-xs font-medium text-red-400 hover:bg-red-500/15 transition-colors"
+            >
+              Reset test
             </button>
           </>
         )}

@@ -41,7 +41,61 @@ router.get('/', async (req, res) => {
   res.json(data)
 })
 
+router.delete('/:id/test-reset', async (req, res) => {
+  const tenantId = await getTenantId(res.locals.user.id)
+  if (!tenantId) { res.status(404).json({ error: 'Tenant not found' }); return }
+
+  const { data: conv } = await supabase
+    .from('conversations')
+    .select('contact_id')
+    .eq('tenant_id', tenantId)
+    .eq('id', req.params.id)
+    .single()
+
+  if (!conv) { res.status(404).json({ error: 'Conversation not found' }); return }
+
+  const { error } = await supabase
+    .from('contacts')
+    .delete()
+    .eq('id', conv.contact_id)
+    .eq('tenant_id', tenantId)
+
+  if (error) { res.status(500).json({ error: error.message }); return }
+  res.json({ ok: true })
+})
+
 // ─── GET /api/conversations/:id/messages ─────────────────────────────────────
+router.delete('/:id/reset', async (req, res) => {
+  const tenantId = await getTenantId(res.locals.user.id)
+  if (!tenantId) { res.status(404).json({ error: 'Tenant not found' }); return }
+
+  const { data: conv } = await supabase
+    .from('conversations')
+    .select('contact_id')
+    .eq('tenant_id', tenantId)
+    .eq('id', req.params.id)
+    .single()
+
+  if (!conv) { res.status(404).json({ error: 'Conversation not found' }); return }
+
+  await supabase.from('messages').delete().eq('conversation_id', req.params.id)
+
+  const { error } = await supabase
+    .from('conversations')
+    .update({ status: 'open', ai_enabled: true, flow_id: null, flow_step: 0, last_read_at: new Date().toISOString() })
+    .eq('id', req.params.id)
+
+  if (error) { res.status(500).json({ error: error.message }); return }
+
+  await supabase
+    .from('contacts')
+    .update({ kanban_stage: 'open' })
+    .eq('id', conv.contact_id)
+    .eq('tenant_id', tenantId)
+
+  res.json({ ok: true })
+})
+
 router.get('/:id/messages', async (req, res) => {
   const { data, error } = await supabase
     .from('messages')
@@ -113,6 +167,7 @@ router.post('/:id/send-audio', async (req, res) => {
   const { data: conv } = await supabase
     .from('conversations')
     .select('contact_id, contacts(phone)')
+    .eq('tenant_id', tenantId)
     .eq('id', req.params.id)
     .single()
 
@@ -156,6 +211,7 @@ router.post('/:id/trigger-flow', async (req, res) => {
   const { data: conv } = await supabase
     .from('conversations')
     .select('contact_id, contacts(phone)')
+    .eq('tenant_id', tenantId)
     .eq('id', req.params.id)
     .single()
 
@@ -174,8 +230,14 @@ router.post('/:id/trigger-flow', async (req, res) => {
   // Vincular flujo a la conversación y ejecutar steps de bienvenida
   await supabase
     .from('conversations')
-    .update({ flow_id, flow_step: 0 })
+    .update({ flow_id, flow_step: 0, ai_enabled: true, status: 'bot' })
     .eq('id', req.params.id)
+
+  await supabase
+    .from('contacts')
+    .update({ kanban_stage: 'open' })
+    .eq('id', conv.contact_id)
+    .eq('tenant_id', tenantId)
 
   await executeWelcomeFlow(flow_id, phone, req.params.id, tenantId, creds)
 
@@ -226,6 +288,37 @@ router.patch('/:id/read', async (req, res) => {
     .eq('id', req.params.id)
 
   if (error) { res.status(500).json({ error: error.message }); return }
+  res.json({ ok: true })
+})
+
+router.delete('/:id/reset-soft', async (req, res) => {
+  const tenantId = await getTenantId(res.locals.user.id)
+  if (!tenantId) { res.status(404).json({ error: 'Tenant not found' }); return }
+
+  const { data: conv } = await supabase
+    .from('conversations')
+    .select('contact_id')
+    .eq('tenant_id', tenantId)
+    .eq('id', req.params.id)
+    .single()
+
+  if (!conv) { res.status(404).json({ error: 'Conversation not found' }); return }
+
+  await supabase.from('messages').delete().eq('conversation_id', req.params.id)
+
+  const { error } = await supabase
+    .from('conversations')
+    .update({ status: 'open', ai_enabled: true, flow_id: null, flow_step: 0, last_read_at: new Date().toISOString() })
+    .eq('id', req.params.id)
+
+  if (error) { res.status(500).json({ error: error.message }); return }
+
+  await supabase
+    .from('contacts')
+    .update({ kanban_stage: 'open' })
+    .eq('id', conv.contact_id)
+    .eq('tenant_id', tenantId)
+
   res.json({ ok: true })
 })
 
