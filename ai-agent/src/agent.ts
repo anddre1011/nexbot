@@ -4,10 +4,10 @@ import { AgentInput, AgentResponse, AgentIntent, ChatMessage } from './types'
 import { buildSystemPrompt, INTENT_DETECTION_PROMPT } from './prompts'
 
 const DEEPSEEK_MODEL_ALIASES: Record<string, string> = {
-  'deepseek-v4-pro': 'deepseek-reasoner',
-  'deepseek-v4-flash': 'deepseek-chat',
-  'hybrid-deepseek-gpt4o': 'deepseek-chat',
-  'hybrid-deepseek-pro-gpt4o': 'deepseek-reasoner',
+  'deepseek-v4-pro': 'deepseek-v4-pro',
+  'deepseek-v4-flash': 'deepseek-v4-flash',
+  'hybrid-deepseek-gpt4o': 'deepseek-v4-flash',
+  'hybrid-deepseek-pro-gpt4o': 'deepseek-v4-pro',
 }
 
 function resolveDeepSeekModel(model: string) {
