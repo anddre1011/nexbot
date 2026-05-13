@@ -45,7 +45,7 @@ export default function ConexionPage() {
 
       const { data } = await supabase
         .from('tenants')
-        .select('id, whatsapp_number, phone_number_id, meta_token, webhook_verify_token')
+        .select('id, whatsapp_number, phone_number_id, meta_token, webhook_verify_token, waba_id')
         .eq('user_id', user.id)
         .maybeSingle()
 
@@ -63,6 +63,7 @@ export default function ConexionPage() {
           phone_number_id:      cleanPhoneId,
           meta_token:           data.meta_token ?? '',
           webhook_verify_token: data.webhook_verify_token ?? '',
+          waba_id:              data.waba_id ?? '',
         })
 
         // Si ya tiene token y phone_id, está conectado

@@ -3,9 +3,17 @@ import { useEffect, useState } from 'react'
 import { apiFetch } from '@/lib/api'
 
 interface Product { id: string; name: string; price: number; currency: string; delivery_url: string | null }
+type DeliveryStepType = 'text' | 'image' | 'video' | 'audio' | 'document'
+interface DeliveryStep {
+  id: string
+  type: DeliveryStepType
+  content: string | null
+  media_url: string | null
+}
 interface ConversionConfig {
   id: string; function_name: string; product_id: string | null; kanban_stage: string
   disable_ai: boolean; delivery_enabled: boolean; confirm_message: string | null
+  confirm_steps?: DeliveryStep[]
   products?: Product | null
 }
 
@@ -35,7 +43,7 @@ export default function ConversionFlowEditor({ flowId, conversions, onChange }: 
       id: Math.random().toString(36).slice(2, 8),
       function_name: newFn.trim(),
       product_id: null, kanban_stage: 'converted',
-      disable_ai: true, delivery_enabled: true, confirm_message: '',
+      disable_ai: true, delivery_enabled: true, confirm_message: '', confirm_steps: [],
     }
     onChange([...conversions, item])
     setShowAdd(false)
@@ -50,6 +58,37 @@ export default function ConversionFlowEditor({ flowId, conversions, onChange }: 
 
   function update(idx: number, patch: Partial<ConversionConfig>) {
     onChange(conversions.map((c, i) => i === idx ? { ...c, ...patch } : c))
+  }
+
+  function mediaTypeFromFile(file: File): DeliveryStepType {
+    if (file.type.startsWith('image/')) return 'image'
+    if (file.type.startsWith('video/')) return 'video'
+    if (file.type.startsWith('audio/')) return 'audio'
+    return 'document'
+  }
+
+  async function uploadDeliveryFile(idx: number, file: File) {
+    const fd = new FormData()
+    fd.append('file', file)
+    const { url } = await apiFetch<{ url: string }>('/api/upload/flow-media', {
+      method: 'POST',
+      body: fd,
+      rawBody: true,
+    } as Parameters<typeof apiFetch>[1])
+
+    const conv = conversions[idx]
+    const steps = [...(conv.confirm_steps ?? []), {
+      id: crypto.randomUUID(),
+      type: mediaTypeFromFile(file),
+      content: file.name,
+      media_url: url,
+    }]
+    update(idx, { confirm_steps: steps })
+  }
+
+  function removeDeliveryStep(idx: number, stepId: string) {
+    const conv = conversions[idx]
+    update(idx, { confirm_steps: (conv.confirm_steps ?? []).filter((step) => step.id !== stepId) })
   }
 
   function remove(idx: number) {
@@ -111,6 +150,39 @@ export default function ConversionFlowEditor({ flowId, conversions, onChange }: 
                   </option>
                 ))}
               </select>
+            </div>
+
+            <div className="mb-3">
+              <label className="text-[10px] font-semibold text-gray-500 mb-1 block">Archivos de entrega</label>
+              <div className="flex flex-col gap-2">
+                {(conv.confirm_steps ?? []).map((step) => (
+                  <div key={step.id} className="flex items-center gap-2 rounded-lg bg-white/5 px-2 py-1.5">
+                    <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] uppercase text-emerald-300">
+                      {step.type}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate text-[11px] text-gray-300">
+                      {step.content || step.media_url}
+                    </span>
+                    <button
+                      onClick={() => removeDeliveryStep(idx, step.id)}
+                      className="text-xs text-gray-500 hover:text-red-400"
+                    >
+                      quitar
+                    </button>
+                  </div>
+                ))}
+                <input
+                  type="file"
+                  accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.zip"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0]
+                    if (!file) return
+                    uploadDeliveryFile(idx, file).catch(() => alert('Error al subir archivo'))
+                    e.currentTarget.value = ''
+                  }}
+                  className="block w-full cursor-pointer rounded-lg border border-dashed border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-[11px] text-gray-400 file:mr-3 file:rounded file:border-0 file:bg-emerald-600 file:px-2 file:py-1 file:text-[11px] file:font-bold file:text-white hover:border-emerald-500/40"
+                />
+              </div>
             </div>
 
             {/* Kanban stage */}

@@ -115,3 +115,20 @@ export async function downloadMediaAsDataUrl(mediaId: string, tenantToken?: stri
   const base64 = Buffer.from(mediaRes.data).toString('base64')
   return `data:${mimeType};base64,${base64}`
 }
+
+export async function downloadMediaBuffer(mediaId: string, tenantToken?: string | null): Promise<{
+  buffer: Buffer
+  mimeType: string
+}> {
+  const token = tenantToken || process.env.META_TOKEN || ''
+  const { data } = await axios.get(`${BASE_URL}/${mediaId}`, { headers: makeHeaders(token) })
+  const downloadUrl: string = data.url
+  const mimeType: string = data.mime_type ?? 'application/octet-stream'
+
+  const mediaRes = await axios.get<ArrayBuffer>(downloadUrl, {
+    headers: makeHeaders(token),
+    responseType: 'arraybuffer',
+  })
+
+  return { buffer: Buffer.from(mediaRes.data), mimeType }
+}

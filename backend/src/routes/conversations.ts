@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import { requireAuth } from '../middlewares/auth'
 import { supabase } from '../services/supabase'
-import { sendTextMessage, sendAudioMessage } from '../services/whatsapp'
+import { sendTextMessage, sendAudioMessage, sendMediaByType } from '../services/whatsapp'
 import { executeWelcomeFlow } from '../services/flow-engine'
 
 const router = Router()
@@ -119,6 +119,7 @@ router.post('/:id/messages', async (req, res) => {
   const { data: conv, error: convErr } = await supabase
     .from('conversations')
     .select('contact_id, contacts(phone)')
+    .eq('tenant_id', tenantId)
     .eq('id', req.params.id)
     .single()
 
@@ -187,7 +188,7 @@ router.post('/:id/send-audio', async (req, res) => {
 
   const { data: msg } = await supabase
     .from('messages')
-    .insert({ conversation_id: req.params.id, direction: 'outbound', type: 'audio', content: '[audio]' })
+    .insert({ conversation_id: req.params.id, direction: 'outbound', type: 'audio', content: audio_url })
     .select('id, direction, type, content, created_at')
     .single()
 
@@ -201,6 +202,54 @@ router.post('/:id/send-audio', async (req, res) => {
 })
 
 // ─── POST /api/conversations/:id/trigger-flow — lanzar flujo manualmente ─────
+router.post('/:id/send-media', async (req, res) => {
+  const { media_url, type, caption, filename } = req.body
+  const mediaType = type === 'file' ? 'document' : type
+  if (!media_url || !['image', 'video', 'audio', 'document'].includes(mediaType)) {
+    res.status(400).json({ error: 'media_url and valid type required' })
+    return
+  }
+
+  const tenantId = await getTenantId(res.locals.user.id)
+  if (!tenantId) { res.status(404).json({ error: 'Tenant not found' }); return }
+
+  const { data: conv } = await supabase
+    .from('conversations')
+    .select('contact_id, contacts(phone)')
+    .eq('tenant_id', tenantId)
+    .eq('id', req.params.id)
+    .single()
+
+  if (!conv) { res.status(404).json({ error: 'Conversation not found' }); return }
+  const phone = (conv.contacts as unknown as { phone: string } | null)?.phone
+  if (!phone) { res.status(400).json({ error: 'Contact phone not found' }); return }
+
+  const { data: tenant } = await supabase
+    .from('tenants')
+    .select('meta_token, phone_number_id')
+    .eq('id', tenantId)
+    .single()
+
+  const creds = { metaToken: (tenant as any)?.meta_token, phoneNumberId: (tenant as any)?.phone_number_id }
+  const sendCaption = mediaType === 'document' ? (filename || caption || 'archivo') : caption
+  await sendMediaByType(phone, mediaType, media_url, sendCaption, creds)
+
+  const { data: msg, error: msgErr } = await supabase
+    .from('messages')
+    .insert({ conversation_id: req.params.id, direction: 'outbound', type: mediaType, content: media_url })
+    .select('id, direction, type, content, created_at')
+    .single()
+
+  if (msgErr) { res.status(500).json({ error: msgErr.message }); return }
+
+  await supabase
+    .from('conversations')
+    .update({ status: 'human', ai_enabled: false })
+    .eq('id', req.params.id)
+
+  res.status(201).json({ ...msg, status: 'human' })
+})
+
 router.post('/:id/trigger-flow', async (req, res) => {
   const { flow_id } = req.body
   if (!flow_id) { res.status(400).json({ error: 'flow_id required' }); return }

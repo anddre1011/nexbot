@@ -47,11 +47,55 @@ function fmtFull(iso: string) {
   return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
+function isUrl(value: string | null) {
+  return !!value && /^https?:\/\//i.test(value)
+}
+
+function fileNameFromUrl(value: string | null) {
+  if (!value) return 'archivo'
+  try {
+    return decodeURIComponent(new URL(value).pathname.split('/').pop() || 'archivo')
+  } catch {
+    return 'archivo'
+  }
+}
+
+function mediaTypeFromFile(file: File) {
+  if (file.type.startsWith('image/')) return 'image'
+  if (file.type.startsWith('video/')) return 'video'
+  if (file.type.startsWith('audio/')) return 'audio'
+  return 'document'
+}
+
 const STATUS_COLORS: Record<string, string> = {
   bot:    'bg-violet-500/20 text-violet-300',
   human:  'bg-sky-500/20 text-sky-300',
   open:   'bg-emerald-500/20 text-emerald-300',
   closed: 'bg-gray-500/20 text-gray-400',
+}
+
+function renderMessageContent(msg: Message) {
+  if (msg.type === 'image') {
+    return isUrl(msg.content)
+      ? <img src={msg.content!} alt="Imagen" className="max-h-72 max-w-full rounded-lg object-contain" />
+      : <span className="italic text-gray-400">Imagen</span>
+  }
+  if (msg.type === 'video') {
+    return isUrl(msg.content)
+      ? <video src={msg.content!} controls className="max-h-72 max-w-full rounded-lg" />
+      : <span className="italic text-gray-400">Video</span>
+  }
+  if (msg.type === 'audio') {
+    return isUrl(msg.content)
+      ? <audio src={msg.content!} controls className="max-w-full" />
+      : <span className="italic text-gray-400">{msg.content || 'Audio'}</span>
+  }
+  if (msg.type === 'document' || msg.type === 'file') {
+    return isUrl(msg.content)
+      ? <a href={msg.content!} target="_blank" rel="noreferrer" className="text-emerald-200 underline underline-offset-2">{fileNameFromUrl(msg.content)}</a>
+      : <span className="italic text-gray-400">{msg.content || 'Archivo'}</span>
+  }
+  return msg.content
 }
 
 // ─── página principal ─────────────────────────────────────────────────────────
@@ -73,6 +117,7 @@ export default function ChatPage() {
   const bottomRef        = useRef<HTMLDivElement>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef   = useRef<Blob[]>([])
+  const fileInputRef     = useRef<HTMLInputElement>(null)
 
   const selected = conversations.find((c) => c.id === selectedId) ?? null
 
@@ -191,7 +236,7 @@ export default function ChatPage() {
           })
           setMessages(prev => [...prev, {
             id: crypto.randomUUID(), direction: 'outbound', type: 'audio',
-            content: '[audio]', created_at: new Date().toISOString(),
+            content: url, created_at: new Date().toISOString(),
           }])
           setConversations(prev => prev.map(c => c.id === selectedId ? { ...c, status: 'human' } : c))
         } catch (err) {
@@ -211,6 +256,34 @@ export default function ChatPage() {
 
   function handleStopRecording() {
     mediaRecorderRef.current?.stop()
+  }
+
+  async function handleAttachFile(file: File | null) {
+    if (!file || !selectedId || sending) return
+    setSending(true)
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      const { url } = await apiFetch<{ url: string }>('/api/upload/flow-media', {
+        method: 'POST',
+        body: fd,
+        rawBody: true,
+      } as Parameters<typeof apiFetch>[1])
+
+      const type = mediaTypeFromFile(file)
+      const msg = await apiFetch<Message>(`/api/conversations/${selectedId}/send-media`, {
+        method: 'POST',
+        body: JSON.stringify({ media_url: url, type, filename: file.name }),
+      })
+      setMessages(prev => [...prev, msg])
+      setConversations(prev => prev.map(c => c.id === selectedId ? { ...c, status: 'human' } : c))
+      fetchConversations()
+    } catch (err) {
+      console.error('[chat] media send:', err)
+      alert('Error al enviar archivo')
+    } finally {
+      setSending(false)
+    }
   }
 
   // ─── lanzar flujo manualmente ────────────────────────────────────────────────
@@ -485,11 +558,7 @@ export default function ChatPage() {
                               : 'rounded-bl-sm bg-[#1f1f1f] text-gray-200'
                           }`}
                         >
-                          {msg.type === 'image'
-                            ? <span className="italic text-gray-400">📷 Imagen</span>
-                            : msg.type === 'audio'
-                            ? <span className="italic text-gray-400">🎤 Audio</span>
-                            : msg.content}
+                          {renderMessageContent(msg)}
                           {showTime && (
                             <div className={`mt-0.5 text-[10px] ${isOut ? 'text-right text-emerald-300/60' : 'text-gray-500'}`}>
                               {fmtFull(msg.created_at)}
@@ -516,6 +585,27 @@ export default function ChatPage() {
                 placeholder="Escribe un mensaje..."
                 className="flex-1 resize-none rounded-xl bg-white/5 px-4 py-2.5 text-sm text-gray-100 placeholder-gray-500 outline-none focus:ring-1 focus:ring-emerald-600"
               />
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.zip"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0] ?? null
+                  handleAttachFile(file)
+                  e.currentTarget.value = ''
+                }}
+              />
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                title="Enviar archivo"
+                disabled={sending}
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/5 text-gray-400 transition hover:bg-white/10 hover:text-white disabled:opacity-40"
+              >
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828L18 9.828a4 4 0 10-5.657-5.656L5.757 10.757a6 6 0 108.486 8.486L20.5 13" />
+                </svg>
+              </button>
               {/* Botón micrófono */}
               <button
                 onClick={recording ? handleStopRecording : handleStartRecording}

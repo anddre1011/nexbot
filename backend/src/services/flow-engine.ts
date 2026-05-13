@@ -34,6 +34,13 @@ interface FlowConversion {
   confirm_steps: unknown[]
 }
 
+interface ConversionStep {
+  id?: string
+  type: 'text' | 'image' | 'video' | 'audio' | 'document' | 'file'
+  content: string | null
+  media_url: string | null
+}
+
 interface FlowInactivityRule {
   id: string
   flow_id: string
@@ -75,28 +82,28 @@ export async function executeWelcomeFlow(
         case 'image':
           if (step.media_url) {
             await sendImageMessage(contactPhone, step.media_url, step.content ?? undefined, creds)
-            await saveOutbound(conversationId, 'image', step.content ?? '[imagen]')
+            await saveOutbound(conversationId, 'image', step.media_url)
           }
           break
 
         case 'video':
           if (step.media_url) {
             await sendVideoMessage(contactPhone, step.media_url, step.content ?? undefined, creds)
-            await saveOutbound(conversationId, 'video', step.content ?? '[video]')
+            await saveOutbound(conversationId, 'video', step.media_url)
           }
           break
 
         case 'audio':
           if (step.media_url) {
             await sendAudioMessage(contactPhone, step.media_url, creds)
-            await saveOutbound(conversationId, 'audio', '[audio]')
+            await saveOutbound(conversationId, 'audio', step.media_url)
           }
           break
 
         case 'file':
           if (step.media_url) {
             await sendDocumentMessage(contactPhone, step.media_url, step.content ?? 'archivo', creds)
-            await saveOutbound(conversationId, 'document', step.content ?? '[archivo]')
+            await saveOutbound(conversationId, 'document', step.media_url)
           }
           break
 
@@ -200,6 +207,10 @@ export async function executeConversionFlow(
         await sendTextMessage(contactPhone, conv.products.delivery_url, creds)
         await saveOutbound(conversationId, 'text', conv.products.delivery_url)
       }
+    }
+
+    if (conv.delivery_enabled && Array.isArray(conv.confirm_steps) && conv.confirm_steps.length > 0) {
+      await executeConversionSteps(conv.confirm_steps as ConversionStep[], contactPhone, conversationId, creds)
     }
 
     // 4. Mover contacto en Kanban
@@ -373,6 +384,42 @@ export async function getInactivityRules(flowId: string): Promise<FlowInactivity
 }
 
 // ─── Helpers internos ─────────────────────────────────────────────────────────
+async function executeConversionSteps(
+  steps: ConversionStep[],
+  contactPhone: string,
+  conversationId: string,
+  creds?: TenantCredentials
+) {
+  for (const step of steps) {
+    try {
+      if (step.type === 'text' && step.content?.trim()) {
+        await sendTextMessage(contactPhone, step.content.trim(), creds)
+        await saveOutbound(conversationId, 'text', step.content.trim())
+        continue
+      }
+
+      if (!step.media_url) continue
+      const caption = step.content ?? undefined
+
+      if (step.type === 'image') {
+        await sendImageMessage(contactPhone, step.media_url, caption, creds)
+        await saveOutbound(conversationId, 'image', step.media_url)
+      } else if (step.type === 'video') {
+        await sendVideoMessage(contactPhone, step.media_url, caption, creds)
+        await saveOutbound(conversationId, 'video', step.media_url)
+      } else if (step.type === 'audio') {
+        await sendAudioMessage(contactPhone, step.media_url, creds)
+        await saveOutbound(conversationId, 'audio', step.media_url)
+      } else if (step.type === 'document' || step.type === 'file') {
+        await sendDocumentMessage(contactPhone, step.media_url, step.content ?? 'archivo', creds)
+        await saveOutbound(conversationId, 'document', step.media_url)
+      }
+    } catch (err) {
+      console.error(`[flow-engine] Error executing conversion step ${step.type}:`, err)
+    }
+  }
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }

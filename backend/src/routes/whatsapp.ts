@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import OpenAI, { toFile } from 'openai'
 import { supabase } from '../services/supabase'
-import { sendTextMessage, sendMediaByType, downloadMediaAsDataUrl } from '../services/whatsapp'
+import { sendTextMessage, sendMediaByType, downloadMediaAsDataUrl, downloadMediaBuffer } from '../services/whatsapp'
 import { resetInactivityTimers, clearInactivityTimers } from '../services/inactivity'
 import { resolveCampaign, linkConversationToCampaign, propagateCampaignToSale } from '../services/campaigns'
 import {
@@ -124,23 +124,31 @@ async function processMessage(params: {
 
   // 5. Guardar mensaje entrante (transcribir audio si aplica)
   let inboundContent: string
+  let storedContent: string
+  let storedType: string = 'text'
   if (type === 'text') {
     inboundContent = (raw.text as { body: string })?.body ?? ''
+    storedContent = inboundContent
   } else if (type === 'audio') {
     const audioId = (raw.audio as { id?: string } | undefined)?.id
     inboundContent = audioId
       ? await transcribeAudio(audioId, creds.metaToken)
       : '[Audio recibido]'
+    storedContent = inboundContent
+    storedType = 'audio'
     console.log(`[webhook] Audio transcribed: "${inboundContent}"`)
   } else {
     inboundContent = `[${type}]`
+    const mediaUrl = await persistInboundMedia(raw, type, tenantId, creds.metaToken)
+    storedContent = mediaUrl ?? inboundContent
+    storedType = ['image', 'video', 'document'].includes(type) ? type : 'text'
   }
 
   await supabase.from('messages').insert({
     conversation_id: conversation.id,
     direction: 'inbound',
-    type: type === 'image' ? 'image' : type === 'audio' ? 'audio' : 'text',
-    content: inboundContent,
+    type: storedType,
+    content: storedContent,
   })
 
   // 6a. Actualizar last_message_at del contacto
@@ -350,7 +358,7 @@ async function processMessage(params: {
         }
       } else if (part.content.trim()) {
         await sendMediaByType(from, part.type, part.content, undefined, creds)
-        await saveOutbound(conversation.id, part.type, `[${part.type}]`)
+        await saveOutbound(conversation.id, part.type, part.content)
       }
     }
   } else {
@@ -384,6 +392,49 @@ async function processMessage(params: {
     clearInactivityTimers(conversation.id)
     createNotification({ tenantId, type: 'disqualification', title: '❌ Contacto descalificado', body: `${from} no estaba interesado`, data: { phone: from } }).catch(() => {})
   }
+}
+
+async function persistInboundMedia(
+  raw: Record<string, unknown>,
+  type: string,
+  tenantId: string,
+  token?: string | null
+): Promise<string | null> {
+  if (!['image', 'video', 'document'].includes(type)) return null
+  const payload = raw[type] as { id?: string; filename?: string; mime_type?: string } | undefined
+  if (!payload?.id) return null
+
+  try {
+    const { buffer, mimeType } = await downloadMediaBuffer(payload.id, token)
+    const ext = extensionFromMime(mimeType, payload.filename)
+    const path = `${tenantId}/inbound/${Date.now()}-${payload.id}.${ext}`
+
+    const { error } = await supabase.storage.from('media').upload(path, buffer, {
+      contentType: mimeType,
+      upsert: false,
+    })
+    if (error) throw error
+
+    const { data } = supabase.storage.from('media').getPublicUrl(path)
+    return data.publicUrl
+  } catch (err) {
+    console.error('[webhook] inbound media persist error:', err)
+    return null
+  }
+}
+
+function extensionFromMime(mimeType: string, filename?: string): string {
+  const fileExt = filename?.split('.').pop()?.replace(/[^a-zA-Z0-9]/g, '').toLowerCase()
+  if (fileExt) return fileExt
+  if (mimeType.includes('png')) return 'png'
+  if (mimeType.includes('webp')) return 'webp'
+  if (mimeType.includes('gif')) return 'gif'
+  if (mimeType.includes('jpeg') || mimeType.includes('jpg')) return 'jpg'
+  if (mimeType.includes('mp4')) return 'mp4'
+  if (mimeType.includes('quicktime')) return 'mov'
+  if (mimeType.includes('pdf')) return 'pdf'
+  if (mimeType.includes('wordprocessingml')) return 'docx'
+  return 'bin'
 }
 
 // ─── Transcribir audio con Whisper ───────────────────────────────────────────

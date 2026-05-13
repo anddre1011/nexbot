@@ -307,7 +307,7 @@ router.get('/:id/conversions', async (req, res) => {
 
 // ─── POST /api/flows/:id/conversions ──────────────────────────────────────────
 router.post('/:id/conversions', async (req, res) => {
-  const { function_name, product_id, kanban_stage, disable_ai, delivery_enabled, confirm_message } = req.body
+  const { function_name, product_id, kanban_stage, disable_ai, delivery_enabled, confirm_message, confirm_steps } = req.body
   if (!function_name) { res.status(400).json({ error: 'function_name is required' }); return }
 
   const { data, error } = await supabase
@@ -320,8 +320,9 @@ router.post('/:id/conversions', async (req, res) => {
       disable_ai:        disable_ai        ?? true,
       delivery_enabled:  delivery_enabled  ?? true,
       confirm_message:   confirm_message   ?? null,
+      confirm_steps:     confirm_steps      ?? [],
     })
-    .select('*, products:product_id(id, name, price, currency)')
+    .select('*, products:product_id(id, name, price, currency, delivery_url)')
     .single()
 
   if (error) { res.status(500).json({ error: error.message }); return }
