@@ -115,6 +115,7 @@ async function processMessage(params: {
   // 3. Obtener o crear conversación abierta
   const conversation = await getOrCreateConversation(contact.id, tenantId)
   const isNewConversation = conversation._new === true
+  const alreadyConverted = ['converted', 'closed'].includes((contact as { kanban_stage?: string | null }).kanban_stage ?? '')
 
   // 4. Vincular campaña si la conversación aún no tiene una asignada
   if (campaignId) {
@@ -167,6 +168,14 @@ async function processMessage(params: {
         msgNorm.includes(norm(k.keyword)) || msgNorm === norm(k.keyword)
       )
       if (matched?.flow_id && matched.flows) {
+        if (alreadyConverted) {
+          console.log(`[webhook] Keyword "${matched.keyword}" ignored because contact ${contact.id} is already converted.`)
+          await supabase.from('conversations')
+            .update({ status: 'open', ai_enabled: false })
+            .eq('id', conversation.id)
+          return
+        }
+
         keywordFlow = matched.flows as unknown as FlowInfo
         
         // Ejecutar flujo inicial SOLO si es una sesión inactiva/nueva
@@ -791,7 +800,7 @@ async function upsertContact(phone: string, tenantId: string) {
   const { data, error } = await supabase
     .from('contacts')
     .upsert({ tenant_id: tenantId, phone }, { onConflict: 'tenant_id,phone' })
-    .select('id, phone')
+    .select('id, phone, kanban_stage')
     .single()
 
   if (error) throw new Error(`upsertContact: ${error.message}`)

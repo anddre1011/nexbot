@@ -47,7 +47,16 @@ export default function DashboardPage() {
     finally { setLoading(false) }
   }, [])
 
-  useEffect(() => { fetchData() }, [fetchData])
+  useEffect(() => {
+    const load = async () => { await fetchData() }
+    void load()
+  }, [fetchData])
+
+  const addToast = useCallback((message: string) => {
+    const id = crypto.randomUUID()
+    setToasts((prev) => [...prev, { id, message }])
+    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 4000)
+  }, [])
 
   useEffect(() => {
     const supabase = createClient()
@@ -58,15 +67,16 @@ export default function DashboardPage() {
           addToast(`💰 Nueva venta — $${amount ?? '–'}`)
           fetchData()
         })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'sales' },
+        (payload) => {
+          const sale = payload.new as { amount?: number; status?: string }
+          if (sale.status !== 'confirmed') return
+          addToast(`Nueva venta - $${sale.amount ?? '-'}`)
+          fetchData()
+        })
       .subscribe()
     return () => { supabase.removeChannel(channel) }
-  }, [fetchData])
-
-  function addToast(message: string) {
-    const id = crypto.randomUUID()
-    setToasts((prev) => [...prev, { id, message }])
-    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 4000)
-  }
+  }, [fetchData, addToast])
 
   const kanbanData = Object.entries(kanbanDist).map(([name, value]) => ({ name, value }))
   const kanbanTotal = Object.values(kanbanDist).reduce((a, b) => a + b, 0)

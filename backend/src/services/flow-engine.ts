@@ -8,6 +8,7 @@ import {
   type TenantCredentials,
 } from './whatsapp'
 import { propagateCampaignToSale } from './campaigns'
+import { createNotification } from './notifications'
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 interface FlowStep {
@@ -185,6 +186,13 @@ export async function executeConversionFlow(
 
       if (saleResult.data?.id) {
         await propagateCampaignToSale(saleResult.data.id, conversationId)
+        createNotification({
+          tenantId,
+          type: 'sale',
+          title: '💰 Nueva venta',
+          body: `${conv.products.name} — Bs ${conv.products.price}`,
+          data: { saleId: saleResult.data.id, amount: conv.products.price, product: conv.products.name },
+        }).catch(() => {})
       }
 
       // 3. Entregar producto automáticamente si tiene delivery_url
