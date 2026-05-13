@@ -5,7 +5,7 @@ import { apiFetch } from '@/lib/api'
 
 // ─── tipos ────────────────────────────────────────────────────────────────────
 type FlowType  = 'ai' | 'conversational_ai'
-type ModelType = 'gpt-4o' | 'gpt-4o-mini' | 'gpt-4.1'
+type ModelType = 'gpt-4o' | 'gpt-4o-mini' | 'gpt-4.1' | 'gpt-3.5-turbo' | 'deepseek-v4-pro' | 'deepseek-v4-flash' | 'deepseek-chat' | 'deepseek-reasoner' | 'hybrid-deepseek-gpt4o' | 'hybrid-deepseek-pro-gpt4o'
 type ItemType  = 'text' | 'image' | 'video'
 
 interface WelcomeItem        { id: string; type: ItemType; content: string }
@@ -37,9 +37,16 @@ const TYPE_COLOR: Record<FlowType, string> = {
 }
 
 const MODEL_LABELS: Record<ModelType, string> = {
-  'gpt-4o':      'GPT-4o',
-  'gpt-4o-mini': 'GPT-4o-mini',
-  'gpt-4.1':     'GPT-4.1',
+  'hybrid-deepseek-gpt4o':     'Ahorrador Flash + GPT-4o',
+  'hybrid-deepseek-pro-gpt4o': 'Ahorrador Pro + GPT-4o',
+  'deepseek-v4-pro':           'DeepSeek V4 Pro',
+  'deepseek-v4-flash':         'DeepSeek V4 Flash',
+  'deepseek-chat':             'DeepSeek Chat',
+  'deepseek-reasoner':         'DeepSeek Reasoner',
+  'gpt-4o':                    'GPT-4o',
+  'gpt-4o-mini':               'GPT-4o-mini',
+  'gpt-4.1':                   'GPT-4.1',
+  'gpt-3.5-turbo':             'GPT-3.5 Turbo',
 }
 
 const VARIABLES = ['{{product_name}}', '{{price}}', '{{payment_methods}}']
@@ -380,9 +387,16 @@ function FlowModal({
               <MField label="Modelo de IA">
                 <select value={model} onChange={(e) => setModel(e.target.value as ModelType)}
                   className="modal-input">
+                  <option value="hybrid-deepseek-gpt4o">Ahorrador Flash + GPT-4o</option>
+                  <option value="hybrid-deepseek-pro-gpt4o">Ahorrador Pro + GPT-4o</option>
+                  <option value="deepseek-v4-pro">DeepSeek V4 Pro</option>
+                  <option value="deepseek-v4-flash">DeepSeek V4 Flash</option>
                   <option value="gpt-4o">GPT-4o</option>
                   <option value="gpt-4o-mini">GPT-4o-mini (económico)</option>
                   <option value="gpt-4.1">GPT-4.1</option>
+                  <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
+                  <option value="deepseek-chat">DeepSeek Chat</option>
+                  <option value="deepseek-reasoner">DeepSeek Reasoner</option>
                 </select>
               </MField>
               <MField label="Atendiente humano (handoff)">

@@ -8,7 +8,7 @@ import InactivityRulesEditor from './InactivityRulesEditor'
 
 // ─── tipos ────────────────────────────────────────────────────────────────────
 type FlowType  = 'ai' | 'conversational_ai'
-type ModelId   = 'gpt-4o' | 'gpt-4o-mini' | 'gpt-4.1' | 'gpt-3.5-turbo' | 'deepseek-v4-pro' | 'deepseek-v4-flash' | 'deepseek-chat' | 'deepseek-reasoner'
+type ModelId   = 'gpt-4o' | 'gpt-4o-mini' | 'gpt-4.1' | 'gpt-3.5-turbo' | 'deepseek-v4-pro' | 'deepseek-v4-flash' | 'deepseek-chat' | 'deepseek-reasoner' | 'hybrid-deepseek-gpt4o' | 'hybrid-deepseek-pro-gpt4o'
 
 interface WelcomeItem       { id: string; type: 'text' | 'image' | 'video'; content: string }
 interface InactivityMsg     { id: string; delay: number; unit: 'minutes' | 'hours'; message: string }
@@ -45,6 +45,8 @@ interface FormState {
 }
 
 const MODELS: { id: ModelId; label: string; desc: string; badge?: string }[] = [
+  { id: 'hybrid-deepseek-gpt4o',     label: 'Ahorrador Flash + GPT-4o', desc: 'DeepSeek para texto + GPT-4o solo para comprobantes/imágenes', badge: '💸 Ahorrador' },
+  { id: 'hybrid-deepseek-pro-gpt4o', label: 'Ahorrador Pro + GPT-4o',   desc: 'DeepSeek Pro para ventas + GPT-4o solo para comprobantes/imágenes', badge: '💸 Pro' },
   { id: 'deepseek-v4-pro',   label: 'DeepSeek V4 Pro',   desc: 'DeepSeek — Más capaz, 90% más barato que GPT-4o', badge: '💰 Recomendado' },
   { id: 'deepseek-v4-flash', label: 'DeepSeek V4 Flash',  desc: 'DeepSeek — Ultra rápido y económico', badge: '⚡ Rápido' },
   { id: 'gpt-4o',            label: 'GPT-4o',             desc: 'OpenAI — Multimodal, validación de comprobantes' },

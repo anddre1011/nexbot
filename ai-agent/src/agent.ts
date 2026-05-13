@@ -3,9 +3,20 @@ import OpenAI from 'openai'
 import { AgentInput, AgentResponse, AgentIntent, ChatMessage } from './types'
 import { buildSystemPrompt, INTENT_DETECTION_PROMPT } from './prompts'
 
+const DEEPSEEK_MODEL_ALIASES: Record<string, string> = {
+  'deepseek-v4-pro': 'deepseek-reasoner',
+  'deepseek-v4-flash': 'deepseek-chat',
+  'hybrid-deepseek-gpt4o': 'deepseek-chat',
+  'hybrid-deepseek-pro-gpt4o': 'deepseek-reasoner',
+}
+
+function resolveDeepSeekModel(model: string) {
+  return DEEPSEEK_MODEL_ALIASES[model] ?? model
+}
+
 // Determina si el modelo es de DeepSeek
 function isDeepSeek(model: string) {
-  return model.startsWith('deepseek') // deepseek-v4-pro, deepseek-v4-flash, deepseek-chat, deepseek-reasoner
+  return model.startsWith('deepseek') || model.startsWith('hybrid-deepseek')
 }
 
 // Crea el cliente correcto según el modelo y las claves disponibles
@@ -13,25 +24,29 @@ function getClient(model: string, apiKey?: string, deepseekKey?: string): { clie
   if (isDeepSeek(model) && deepseekKey) {
     return {
       client: new OpenAI({ apiKey: deepseekKey, baseURL: 'https://api.deepseek.com/v1' }),
-      resolvedModel: model,
+      resolvedModel: resolveDeepSeekModel(model),
     }
   }
   // Fallback: OpenAI
   const key = apiKey || process.env.OPENAI_API_KEY || ''
   return {
     client: new OpenAI({ apiKey: key }),
-    resolvedModel: model.startsWith('deepseek') ? 'gpt-4o-mini' : model, // si no hay deepseek key, usa mini
+    resolvedModel: isDeepSeek(model) ? 'gpt-4o-mini' : model, // si no hay deepseek key, usa mini
   }
 }
 
-async function detectIntent(message: string, openaiKey?: string): Promise<{ intent: AgentIntent; confidence: number }> {
+async function detectIntent(
+  message: string,
+  model: string,
+  openaiKey?: string,
+  deepseekKey?: string,
+): Promise<{ intent: AgentIntent; confidence: number }> {
   const prompt = INTENT_DETECTION_PROMPT.replace('{message}', message)
-  const key = openaiKey || process.env.OPENAI_API_KEY || ''
-  const client = new OpenAI({ apiKey: key })
+  const { client, resolvedModel } = getClient(model, openaiKey, deepseekKey)
 
   try {
     const res = await client.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: isDeepSeek(model) ? resolvedModel : 'gpt-4o-mini',
       messages: [{ role: 'user', content: prompt }],
       temperature: 0,
       max_tokens: 60,
@@ -52,7 +67,7 @@ export async function runAgent(input: AgentInput): Promise<AgentResponse> {
 
   const model = requestedModel ?? 'gpt-4o'
 
-  const { intent, confidence } = await detectIntent(incomingMessage, apiKey)
+  const { intent, confidence } = await detectIntent(incomingMessage, model, apiKey, deepseekKey)
 
   if (intent === 'voucher') {
     return { reply: '¡Recibido! Estoy verificando tu comprobante de pago. En un momento te confirmo. 🙏', intent, confidence }
