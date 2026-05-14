@@ -280,7 +280,7 @@ export default function ChatPage() {
       fetchConversations()
     } catch (err) {
       console.error('[chat] media send:', err)
-      alert('Error al enviar archivo')
+      alert(err instanceof Error ? err.message : 'Error al enviar archivo')
     } finally {
       setSending(false)
     }
