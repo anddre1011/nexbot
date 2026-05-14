@@ -2,6 +2,9 @@ import { supabase } from './supabase'
 
 interface MetaReferral {
   source?: string       // URL del anuncio
+  source_id?: string
+  source_url?: string
+  source_type?: string
   type?: string         // 'AD' | 'POST' | ...
   headline?: string     // título del anuncio
   ad_id?: string        // ID del anuncio en Meta
@@ -22,14 +25,15 @@ export async function resolveCampaign(
 ): Promise<ResolvedCampaign> {
   const referral = rawMessage.referral as MetaReferral | undefined
 
-  if (!referral?.ad_id && !referral?.source) {
+  const metaAdId = referral?.ad_id ?? referral?.source_id ?? null
+  const source = referral?.source ?? referral?.source_url ?? null
+
+  if (!metaAdId && !source) {
     return { campaignId: null, ctwaClid: null, metaAdId: null }
   }
 
-  const metaAdId  = referral.ad_id   ?? null
-  const source    = referral.source  ?? null
-  const headline  = referral.headline ?? metaAdId ?? 'Campaña Meta'
-  const ctwaClid  = referral.ctwa_clid ?? null
+  const headline  = referral?.headline ?? metaAdId ?? 'Campaña Meta'
+  const ctwaClid  = referral?.ctwa_clid ?? null
 
   // Buscar campaña existente por meta_ad_id
   if (metaAdId) {
