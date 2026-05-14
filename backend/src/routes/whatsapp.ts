@@ -398,7 +398,7 @@ async function processMessage(params: {
     'no me interesa', 'no quiero', 'no gracias', 'déjame en paz',
     'no necesito', 'basta', 'para de escribir', 'no me escribas',
     'no me molestes', 'me molesta', 'me tiene harto', 'spameando',
-    'no me interesa para nada', 'paso', 'no paso', 'no compro',
+    'no me interesa para nada', 'no compro',
     'reportar', 'voy a reportar',
   ]
   const inboundNorm = (inboundContent ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
