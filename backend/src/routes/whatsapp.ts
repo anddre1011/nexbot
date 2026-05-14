@@ -115,7 +115,8 @@ async function processMessage(params: {
   // 3. Obtener o crear conversación abierta
   const conversation = await getOrCreateConversation(contact.id, tenantId)
   const isNewConversation = conversation._new === true
-  const alreadyConverted = ['converted', 'closed'].includes((contact as { kanban_stage?: string | null }).kanban_stage ?? '')
+  const blockedStages = ['converted', 'closed', 'disqualified', 'abandoned']
+  const alreadyConverted = blockedStages.includes((contact as { kanban_stage?: string | null }).kanban_stage ?? '')
 
   // 4. Vincular campaña si la conversación aún no tiene una asignada
   if (campaignId) {
@@ -126,9 +127,8 @@ async function processMessage(params: {
     ? await getAutomationFlowByAdId(tenantId, metaAdId)
     : null
   if (adFlow) {
-    const isActiveSession = !isNewConversation && (conversation.status === 'human' || conversation.ai_enabled)
-    if (isActiveSession) {
-      console.log(`[webhook] Ad flow "${adFlow.name}" ignored because conversation is already active.`)
+    if (!isNewConversation) {
+      console.log(`[webhook] Ad flow "${adFlow.name}" ignored because conversation already exists.`)
     } else {
       await supabase.from('conversations')
         .update({ flow_id: adFlow.id, status: 'bot', ai_enabled: true, flow_step: 0 })
@@ -199,10 +199,7 @@ async function processMessage(params: {
       )
       if (matched?.flow_id && matched.flows) {
         if (alreadyConverted) {
-          console.log(`[webhook] Keyword "${matched.keyword}" ignored because contact ${contact.id} is already converted.`)
-          await supabase.from('conversations')
-            .update({ status: 'open', ai_enabled: false })
-            .eq('id', conversation.id)
+          console.log(`[webhook] Keyword "${matched.keyword}" ignored because contact ${contact.id} is not reactivatable.`)
           return
         }
 
@@ -211,10 +208,10 @@ async function processMessage(params: {
         // Ejecutar flujo inicial SOLO si es una sesión inactiva/nueva
         // Si el estatus es 'human', NUNCA intervenimos.
         // Si la IA está apagada, la sesión NO está activa para el bot (dejamos que las keywords la revivan).
-        const isActiveSession = !isNewConversation && (conversation.status === 'human' || conversation.ai_enabled);
+        const isExistingConversation = !isNewConversation
 
-        if (isActiveSession) {
-          console.log(`[webhook] Keyword "${matched.keyword}" ignored because conversation is already active. AI will handle it.`)
+        if (isExistingConversation) {
+          console.log(`[webhook] Keyword "${matched.keyword}" ignored because conversation already exists. AI will handle it if enabled.`)
         } else {
           // Vincular flujo nuevo a la conversación y reactivar la IA
           await supabase.from('conversations')
@@ -886,7 +883,6 @@ async function getOrCreateConversation(contactId: string, tenantId: string) {
     .select('id, status, ai_enabled, flow_id, flow_step')
     .eq('tenant_id', tenantId)
     .eq('contact_id', contactId)
-    .in('status', ['open', 'bot'])
     .order('created_at', { ascending: false })
     .limit(1)
     .single()
