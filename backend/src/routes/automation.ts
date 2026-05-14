@@ -34,21 +34,38 @@ router.post('/campaigns', async (req, res) => {
 
   const { name, flow_id, product_id, meta_ad_source_id, source_ids } = req.body
   if (!name?.trim()) { res.status(400).json({ error: 'name is required' }); return }
+  const campaignName = name.trim()
+  const metaAdSourceId = meta_ad_source_id?.trim() || null
 
   const { data, error } = await supabase
     .from('automation_campaigns')
     .insert({
       tenant_id: tenantId,
-      name: name.trim(),
+      name: campaignName,
       flow_id: flow_id ?? null,
       product_id: product_id ?? null,
-      meta_ad_source_id: meta_ad_source_id?.trim() ?? null,
+      meta_ad_source_id: metaAdSourceId,
       source_ids: source_ids ?? [],
     })
     .select('id, name, meta_ad_source_id, source_ids, executions, active, created_at')
     .single()
 
   if (error) { res.status(500).json({ error: error.message }); return }
+
+  if (metaAdSourceId) {
+    const { error: campaignError } = await supabase
+      .from('campaigns')
+      .upsert({
+        tenant_id: tenantId,
+        name: campaignName,
+        meta_ad_id: metaAdSourceId,
+      }, { onConflict: 'tenant_id,meta_ad_id', ignoreDuplicates: true })
+
+    if (campaignError) {
+      console.error('[automation] campaign attribution create error:', campaignError.message)
+    }
+  }
+
   res.status(201).json(data)
 })
 
