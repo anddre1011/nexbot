@@ -358,9 +358,13 @@ router.patch('/:id/status', async (req, res) => {
   const tenantId = await getTenantId(res.locals.user.id)
   if (!tenantId) { res.status(404).json({ error: 'Tenant not found' }); return }
 
+  const updates: Record<string, unknown> = { status }
+  if (status === 'bot' || status === 'open') updates.ai_enabled = true
+  if (['human', 'closed', 'attending', 'converted', 'disqualified', 'abandoned'].includes(status)) updates.ai_enabled = false
+
   const { data, error } = await supabase
     .from('conversations')
-    .update({ status })
+    .update(updates)
     .eq('id', req.params.id)
     .eq('tenant_id', tenantId)
     .select('id, status')

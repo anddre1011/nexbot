@@ -72,6 +72,7 @@ const STATUS_COLORS: Record<string, string> = {
   human:  'bg-sky-500/20 text-sky-300',
   open:   'bg-emerald-500/20 text-emerald-300',
   closed: 'bg-gray-500/20 text-gray-400',
+  disqualified: 'bg-red-500/20 text-red-300',
 }
 
 function renderMessageContent(msg: Message) {
@@ -309,6 +310,21 @@ export default function ChatPage() {
     setSelectedId(null)
     setMessages([])
     fetchConversations()
+  }
+
+  async function handleStatusChange(status: string) {
+    if (!selected) return
+    try {
+      const updated = await apiFetch<{ id: string; status: string }>(`/api/conversations/${selected.id}/status`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status }),
+      })
+      setConversations(prev => prev.map(c => c.id === selected.id ? { ...c, status: updated.status } : c))
+      fetchConversations()
+    } catch (err) {
+      console.error('[chat] status:', err)
+      alert(err instanceof Error ? err.message : 'Error al cambiar estado')
+    }
   }
 
   const filtered = conversations.filter((c) => {
@@ -668,9 +684,11 @@ export default function ChatPage() {
                 {[
                   { icon: 'M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z', label: 'Guardar' },
                   { icon: 'M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z', label: 'Etiquetar' },
-                  { icon: 'M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636', label: 'Bloquear' },
+                  { icon: 'M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636', label: 'Bloquear', status: 'disqualified' },
                 ].map(a => (
-                  <button key={a.label} style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }}
+                  <button key={a.label}
+                    onClick={() => a.status && handleStatusChange(a.status)}
+                    style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }}
                     className="flex flex-col items-center gap-1 rounded-xl px-3 py-2.5 text-gray-400 hover:text-white hover:bg-white/8 transition-colors">
                     <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                       <path strokeLinecap="round" strokeLinejoin="round" d={a.icon} />
@@ -713,6 +731,7 @@ export default function ChatPage() {
                 {(['bot', 'human', 'open', 'closed'] as const).map((s) => (
                   <button
                     key={s}
+                    onClick={() => handleStatusChange(s)}
                     className={`rounded-lg px-3 py-1.5 text-left text-xs font-medium transition-colors ${
                       selected.status === s
                         ? (STATUS_COLORS[s] ?? '') + ' ring-1 ring-inset ring-current'
