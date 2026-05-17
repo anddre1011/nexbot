@@ -2,51 +2,23 @@ import { supabase } from './supabase'
 import { sendTextMessage, sendMediaByType, type TenantCredentials } from './whatsapp'
 import { getInactivityRules, resolveMediaVars } from './flow-engine'
 
-// ─── Tipos ────────────────────────────────────────────────────────────────────
 interface ConversationTimers {
   timers: NodeJS.Timeout[]
-  lastActivity: number        // timestamp ms del último mensaje
+  lastActivity: number
 }
 
-// En producción reemplazar con BullMQ o similar — los setTimeout se pierden al reiniciar
+type ConversationState = {
+  status: string | null
+  ai_enabled: boolean | null
+}
+
 const activeTimers = new Map<string, ConversationTimers>()
 
-// Ventana de 24h de WhatsApp (en ms)
 const WHATSAPP_WINDOW_MS = 24 * 60 * 60 * 1000
+const CLOSE_DELAY_MS = parseInt(process.env.CLOSE_DELAY_MS ?? '86400000')
+const FOLLOWUP_DELAY_MS = parseInt(process.env.FOLLOWUP_DELAY_MS ?? '3600000')
+const INACTIVITY_SEND_STATUSES = new Set(['bot', 'open'])
 
-// ─── Verificar si estamos dentro del horario de operación ─────────────────────
-async function isWithinBusinessHours(tenantId: string): Promise<boolean> {
-  try {
-    const { data: tenant } = await supabase
-      .from('tenants')
-      .select('business_hours')
-      .eq('id', tenantId)
-      .single()
-
-    if (!tenant?.business_hours) return true // Sin config = siempre permitido
-
-    const hours = tenant.business_hours as Record<string, { start: string; end: string; enabled: boolean }>
-    const now = new Date()
-    // Usar timezone Bolivia (UTC-4)
-    const boliviaTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/La_Paz' }))
-    const dayNames = ['domingo', 'lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado']
-    const dayConfig = hours[dayNames[boliviaTime.getDay()]]
-
-    if (!dayConfig || !dayConfig.enabled) return false // Día deshabilitado
-
-    const currentMinutes = boliviaTime.getHours() * 60 + boliviaTime.getMinutes()
-    const [startH, startM] = dayConfig.start.split(':').map(Number)
-    const [endH, endM] = dayConfig.end.split(':').map(Number)
-    const startMinutes = startH * 60 + startM
-    const endMinutes = endH * 60 + endM
-
-    return currentMinutes >= startMinutes && currentMinutes <= endMinutes
-  } catch {
-    return true // Error = permitir
-  }
-}
-
-// ─── Iniciar timers de inactividad basados en flujo ───────────────────────────
 export async function resetInactivityTimers(
   conversationId: string,
   contactPhone: string,
@@ -54,20 +26,18 @@ export async function resetInactivityTimers(
   tenantId?: string,
   creds?: TenantCredentials,
 ) {
-  // Limpiar timers previos
   clearInactivityTimers(conversationId)
 
   const now = Date.now()
 
-  // Si no hay flujo, usar comportamiento por defecto
   if (!flowId || !tenantId) {
     const defaultFollowUp = setTimeout(async () => {
       await sendDefaultFollowUp(conversationId, contactPhone, creds)
-    }, parseInt(process.env.FOLLOWUP_DELAY_MS ?? '3600000'))
+    }, FOLLOWUP_DELAY_MS)
 
     const defaultClose = setTimeout(async () => {
       await closeConversation(conversationId)
-    }, parseInt(process.env.CLOSE_DELAY_MS ?? '86400000'))
+    }, CLOSE_DELAY_MS)
 
     activeTimers.set(conversationId, {
       timers: [defaultFollowUp, defaultClose],
@@ -76,28 +46,28 @@ export async function resetInactivityTimers(
     return
   }
 
-  // Cargar reglas de inactividad del flujo
   const rules = await getInactivityRules(flowId)
 
   if (rules.length === 0) {
-    // Sin reglas: usar defaults
     const defaultFollowUp = setTimeout(async () => {
       await sendDefaultFollowUp(conversationId, contactPhone, creds)
-    }, parseInt(process.env.FOLLOWUP_DELAY_MS ?? '3600000'))
+    }, FOLLOWUP_DELAY_MS)
+
+    const defaultClose = setTimeout(async () => {
+      await closeConversation(conversationId)
+    }, CLOSE_DELAY_MS)
 
     activeTimers.set(conversationId, {
-      timers: [defaultFollowUp],
+      timers: [defaultFollowUp, defaultClose],
       lastActivity: now,
     })
     return
   }
 
-  // Crear un timer por cada regla
   const timers: NodeJS.Timeout[] = []
 
   for (const rule of rules) {
     const timer = setTimeout(async () => {
-      // Verificar ventana de 24h
       const entry = activeTimers.get(conversationId)
       if (!entry) return
 
@@ -107,22 +77,13 @@ export async function resetInactivityTimers(
         return
       }
 
-      // Verificar que la conversación sigue abierta
-      const { data: conv } = await supabase
-        .from('conversations')
-        .select('status, ai_enabled')
-        .eq('id', conversationId)
-        .single()
-
-      if (!conv || conv.status === 'closed') return
+      const conv = await getConversationState(conversationId)
+      if (!canSendInactivity(conv)) {
+        console.log(`[inactivity] Rule ${rule.position} skipped for conv ${conversationId} (status=${conv?.status ?? 'missing'}, ai=${conv?.ai_enabled ?? 'missing'})`)
+        return
+      }
 
       try {
-        // Verificar horario de operación antes de enviar
-        if (tenantId && !(await isWithinBusinessHours(tenantId))) {
-          console.log(`[inactivity] Outside business hours for conv ${conversationId}, skipping rule ${rule.position}`)
-          return
-        }
-
         switch (rule.type) {
           case 'text':
             if (rule.content) {
@@ -141,31 +102,8 @@ export async function resetInactivityTimers(
             break
 
           case 'media_var':
-            // Resolver variable de media: {{media:videodemo}}
-            if (rule.content && tenantId) {
-              const resolved = await resolveMediaVars(rule.content, tenantId)
-              if (resolved !== rule.content) {
-                // Era una variable que se resolvió a URL
-                const { data: media } = await supabase
-                  .from('media')
-                  .select('type, url')
-                  .eq('tenant_id', tenantId)
-                  .eq('variable', rule.content)
-                  .single()
-
-                if (media) {
-                  await sendMediaByType(
-                    contactPhone,
-                    media.type as 'image' | 'video' | 'audio' | 'document',
-                    media.url
-                  )
-                  await saveOutbound(conversationId, media.type, rule.content)
-                }
-              } else {
-                // Es texto plano
-                await sendTextMessage(contactPhone, resolved)
-                await saveOutbound(conversationId, 'text', resolved)
-              }
+            if (rule.content) {
+              await sendMediaRule(conversationId, contactPhone, tenantId, rule.content, creds)
             }
             break
         }
@@ -179,7 +117,6 @@ export async function resetInactivityTimers(
     timers.push(timer)
   }
 
-  // Timer de cierre a las 24h (siempre)
   const closeTimer = setTimeout(async () => {
     await closeConversation(conversationId)
   }, WHATSAPP_WINDOW_MS)
@@ -188,7 +125,6 @@ export async function resetInactivityTimers(
   activeTimers.set(conversationId, { timers, lastActivity: now })
 }
 
-// ─── Limpiar todos los timers de una conversación ─────────────────────────────
 export function clearInactivityTimers(conversationId: string) {
   const entry = activeTimers.get(conversationId)
   if (entry) {
@@ -197,9 +133,51 @@ export function clearInactivityTimers(conversationId: string) {
   }
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+async function sendMediaRule(
+  conversationId: string,
+  contactPhone: string,
+  tenantId: string,
+  content: string,
+  creds?: TenantCredentials,
+) {
+  const resolved = await resolveMediaVars(content, tenantId)
+
+  if (resolved === content) {
+    await sendTextMessage(contactPhone, resolved, creds)
+    await saveOutbound(conversationId, 'text', resolved)
+    return
+  }
+
+  const { data: media } = await supabase
+    .from('media')
+    .select('type, url')
+    .eq('tenant_id', tenantId)
+    .eq('variable', content)
+    .maybeSingle()
+
+  if (!media) {
+    console.warn(`[inactivity] Media variable not found: ${content}`)
+    return
+  }
+
+  await sendMediaByType(
+    contactPhone,
+    media.type as 'image' | 'video' | 'audio' | 'document',
+    media.url,
+    undefined,
+    creds,
+  )
+  await saveOutbound(conversationId, media.type, content)
+}
+
 async function sendDefaultFollowUp(conversationId: string, contactPhone: string, creds?: TenantCredentials) {
-  const msg = '¡Hola! Solo quería saber si tienes alguna duda sobre nuestro producto. Estoy aquí para ayudarte. 😊'
+  const conv = await getConversationState(conversationId)
+  if (!canSendInactivity(conv)) {
+    console.log(`[inactivity] Default follow-up skipped for conv ${conversationId} (status=${conv?.status ?? 'missing'}, ai=${conv?.ai_enabled ?? 'missing'})`)
+    return
+  }
+
+  const msg = 'Hola, solo queria saber si tienes alguna duda sobre el producto. Estoy aqui para ayudarte.'
   try {
     await sendTextMessage(contactPhone, msg, creds)
     await saveOutbound(conversationId, 'text', msg)
@@ -210,10 +188,17 @@ async function sendDefaultFollowUp(conversationId: string, contactPhone: string,
 
 async function closeConversation(conversationId: string) {
   try {
+    const conv = await getConversationState(conversationId)
+    if (!conv || ['closed', 'converted', 'disqualified', 'abandoned'].includes(conv.status ?? '')) {
+      activeTimers.delete(conversationId)
+      return
+    }
+
     await supabase
       .from('conversations')
-      .update({ status: 'closed' })
+      .update({ status: 'closed', ai_enabled: false })
       .eq('id', conversationId)
+
     activeTimers.delete(conversationId)
     console.log(`[inactivity] conversation ${conversationId} closed after 24h`)
   } catch (err) {
@@ -228,4 +213,20 @@ async function saveOutbound(conversationId: string, type: string, content: strin
     type,
     content,
   })
+}
+
+async function getConversationState(conversationId: string): Promise<ConversationState | null> {
+  const { data } = await supabase
+    .from('conversations')
+    .select('status, ai_enabled')
+    .eq('id', conversationId)
+    .maybeSingle()
+
+  return data as ConversationState | null
+}
+
+function canSendInactivity(conv: ConversationState | null) {
+  if (!conv?.status) return false
+  if (!INACTIVITY_SEND_STATUSES.has(conv.status)) return false
+  return conv.ai_enabled !== false
 }
