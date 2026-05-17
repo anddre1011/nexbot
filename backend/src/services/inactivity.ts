@@ -19,6 +19,13 @@ type ScheduledInactivityJob = {
   created_at: string
 }
 
+type ConversationSeed = {
+  id: string
+  tenant_id: string
+  flow_id: string | null
+  contacts?: { phone?: string | null } | Array<{ phone?: string | null }> | null
+}
+
 const WHATSAPP_WINDOW_MS = 24 * 60 * 60 * 1000
 const CLOSE_DELAY_MS = parseInt(process.env.CLOSE_DELAY_MS ?? '86400000')
 const FOLLOWUP_DELAY_MS = parseInt(process.env.FOLLOWUP_DELAY_MS ?? '3600000')
@@ -39,75 +46,7 @@ export async function resetInactivityTimers(
 
   try {
     await clearInactivityTimers(conversationId)
-
-    const now = Date.now()
-    const jobs: Array<{
-      tenant_id: string
-      conversation_id: string
-      contact_phone: string
-      flow_id: string | null
-      rule_id: string | null
-      kind: string
-      content: string | null
-      media_url: string | null
-      due_at: string
-    }> = []
-
-    if (flowId) {
-      const rules = await getInactivityRules(flowId)
-      for (const rule of rules) {
-        if (rule.delay_ms >= WHATSAPP_WINDOW_MS) {
-          console.log(`[inactivity] Rule ${rule.id} skipped while scheduling because it is outside the 24h window`)
-          continue
-        }
-
-        jobs.push({
-          tenant_id: tenantId,
-          conversation_id: conversationId,
-          contact_phone: contactPhone,
-          flow_id: flowId,
-          rule_id: rule.id,
-          kind: rule.type,
-          content: rule.content,
-          media_url: rule.media_url,
-          due_at: new Date(now + rule.delay_ms).toISOString(),
-        })
-      }
-    }
-
-    if (jobs.length === 0) {
-      jobs.push({
-        tenant_id: tenantId,
-        conversation_id: conversationId,
-        contact_phone: contactPhone,
-        flow_id: flowId ?? null,
-        rule_id: null,
-        kind: 'text',
-        content: 'Hola, solo queria saber si tienes alguna duda sobre el producto. Estoy aqui para ayudarte.',
-        media_url: null,
-        due_at: new Date(now + FOLLOWUP_DELAY_MS).toISOString(),
-      })
-    }
-
-    jobs.push({
-      tenant_id: tenantId,
-      conversation_id: conversationId,
-      contact_phone: contactPhone,
-      flow_id: flowId ?? null,
-      rule_id: null,
-      kind: 'close',
-      content: null,
-      media_url: null,
-      due_at: new Date(now + Math.min(CLOSE_DELAY_MS, WHATSAPP_WINDOW_MS)).toISOString(),
-    })
-
-    const { error } = await supabase.from('scheduled_inactivity_jobs').insert(jobs)
-    if (error) {
-      console.error(`[inactivity] Could not schedule jobs for conv ${conversationId}:`, error.message)
-      return
-    }
-
-    console.log(`[inactivity] Scheduled ${jobs.length} jobs for conv ${conversationId}`)
+    await scheduleInactivityJobs(conversationId, contactPhone, tenantId, flowId, Date.now(), false)
   } catch (err) {
     console.error(`[inactivity] schedule error for conv ${conversationId}:`, err)
   }
@@ -133,8 +72,155 @@ export function startInactivityWorker() {
     void processDueInactivityJobs()
   }, WORKER_INTERVAL_MS)
 
+  void bootstrapOpenConversations()
   void processDueInactivityJobs()
   console.log(`[inactivity] Worker started (${WORKER_INTERVAL_MS}ms interval)`)
+}
+
+async function scheduleInactivityJobs(
+  conversationId: string,
+  contactPhone: string,
+  tenantId: string,
+  flowId: string | undefined,
+  anchorMs: number,
+  sendOverdueNow: boolean,
+) {
+  const now = Date.now()
+  const jobs: Array<{
+    tenant_id: string
+    conversation_id: string
+    contact_phone: string
+    flow_id: string | null
+    rule_id: string | null
+    kind: string
+    content: string | null
+    media_url: string | null
+    due_at: string
+  }> = []
+
+  if (flowId) {
+    const rules = await getInactivityRules(flowId)
+    const eligibleRules = rules.filter((rule) => {
+      const eligible = rule.delay_ms < WHATSAPP_WINDOW_MS
+      if (!eligible) {
+        console.log(`[inactivity] Rule ${rule.id} skipped while scheduling because it is outside the 24h window`)
+      }
+      return eligible
+    })
+    const overdueRules = sendOverdueNow
+      ? eligibleRules.filter((rule) => anchorMs + rule.delay_ms <= now)
+      : []
+    const futureRules = sendOverdueNow
+      ? eligibleRules.filter((rule) => anchorMs + rule.delay_ms > now)
+      : eligibleRules
+    const rulesToSchedule = overdueRules.length
+      ? [overdueRules[overdueRules.length - 1], ...futureRules]
+      : futureRules
+
+    for (const rule of rulesToSchedule) {
+      const originalDueMs = anchorMs + rule.delay_ms
+      const dueMs = sendOverdueNow && originalDueMs <= now ? now + 5000 : originalDueMs
+
+      jobs.push({
+        tenant_id: tenantId,
+        conversation_id: conversationId,
+        contact_phone: contactPhone,
+        flow_id: flowId,
+        rule_id: rule.id,
+        kind: rule.type,
+        content: rule.content,
+        media_url: rule.media_url,
+        due_at: new Date(dueMs).toISOString(),
+      })
+    }
+  }
+
+  if (jobs.length === 0) {
+    const fallbackDueMs = anchorMs + FOLLOWUP_DELAY_MS
+    jobs.push({
+      tenant_id: tenantId,
+      conversation_id: conversationId,
+      contact_phone: contactPhone,
+      flow_id: flowId ?? null,
+      rule_id: null,
+      kind: 'text',
+      content: 'Hola, solo queria saber si tienes alguna duda sobre el producto. Estoy aqui para ayudarte.',
+      media_url: null,
+      due_at: new Date(sendOverdueNow && fallbackDueMs <= now ? now + 5000 : fallbackDueMs).toISOString(),
+    })
+  }
+
+  const closeDueMs = anchorMs + Math.min(CLOSE_DELAY_MS, WHATSAPP_WINDOW_MS)
+  jobs.push({
+    tenant_id: tenantId,
+    conversation_id: conversationId,
+    contact_phone: contactPhone,
+    flow_id: flowId ?? null,
+    rule_id: null,
+    kind: 'close',
+    content: null,
+    media_url: null,
+    due_at: new Date(sendOverdueNow && closeDueMs <= now ? now + 10000 : closeDueMs).toISOString(),
+  })
+
+  const { error } = await supabase.from('scheduled_inactivity_jobs').insert(jobs)
+  if (error) {
+    console.error(`[inactivity] Could not schedule jobs for conv ${conversationId}:`, error.message)
+    return
+  }
+
+  console.log(`[inactivity] Scheduled ${jobs.length} jobs for conv ${conversationId}`)
+}
+
+async function bootstrapOpenConversations() {
+  const { data: conversations, error } = await supabase
+    .from('conversations')
+    .select('id, tenant_id, flow_id, contacts(phone)')
+    .in('status', ['bot', 'open'])
+    .eq('ai_enabled', true)
+    .not('flow_id', 'is', null)
+    .limit(200)
+
+  if (error) {
+    console.error('[inactivity] Bootstrap query error:', error.message)
+    return
+  }
+
+  for (const conversation of (conversations ?? []) as ConversationSeed[]) {
+    const { data: existingJob } = await supabase
+      .from('scheduled_inactivity_jobs')
+      .select('id')
+      .eq('conversation_id', conversation.id)
+      .eq('status', 'pending')
+      .limit(1)
+      .maybeSingle()
+
+    if (existingJob) continue
+
+    const { data: lastInbound } = await supabase
+      .from('messages')
+      .select('created_at')
+      .eq('conversation_id', conversation.id)
+      .eq('direction', 'inbound')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    const createdAt = (lastInbound as { created_at?: string } | null)?.created_at
+    if (!createdAt) continue
+
+    const anchorMs = new Date(createdAt).getTime()
+    if (Date.now() - anchorMs >= WHATSAPP_WINDOW_MS) {
+      await closeConversation(conversation.id)
+      continue
+    }
+
+    const contact = Array.isArray(conversation.contacts) ? conversation.contacts[0] : conversation.contacts
+    const phone = contact?.phone
+    if (!phone || !conversation.flow_id) continue
+
+    await scheduleInactivityJobs(conversation.id, phone, conversation.tenant_id, conversation.flow_id, anchorMs, true)
+  }
 }
 
 async function processDueInactivityJobs() {
