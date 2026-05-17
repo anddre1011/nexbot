@@ -243,7 +243,7 @@ async function processMessage(params: {
   }
 
   // 6c. Reiniciar temporizadores de inactividad (con reglas del flujo)
-  resetInactivityTimers(conversation.id, from, activeFlow?.id, tenantId, creds)
+  await resetInactivityTimers(conversation.id, from, activeFlow?.id, tenantId, creds)
 
   // ═══ 7. LÓGICA DE FLUJO ═══════════════════════════════════════════════════
 
@@ -323,7 +323,7 @@ async function processMessage(params: {
     for (const fn of functions) {
       if (fn === 'call_attendant') {
         await supabase.from('conversations').update({ status: 'human' }).eq('id', conversation.id)
-        clearInactivityTimers(conversation.id)
+        await clearInactivityTimers(conversation.id)
         continue
       }
 
@@ -332,7 +332,7 @@ async function processMessage(params: {
           supabase.from('contacts').update({ kanban_stage: 'disqualified' }).eq('id', contact.id),
           supabase.from('conversations').update({ status: 'disqualified', ai_enabled: false }).eq('id', conversation.id),
         ])
-        clearInactivityTimers(conversation.id)
+        await clearInactivityTimers(conversation.id)
         continue
       }
 
@@ -348,7 +348,7 @@ async function processMessage(params: {
 
       if (success) {
         // Si la conversión fue exitosa, limpiar timers y no enviar el texto limpio
-        clearInactivityTimers(conversation.id)
+        await clearInactivityTimers(conversation.id)
         return // SILENCIO ABSOLUTO — el flujo de conversión ya respondió
       }
     }
@@ -408,7 +408,7 @@ async function processMessage(params: {
       supabase.from('contacts').update({ kanban_stage: 'disqualified' }).eq('id', contact.id),
       supabase.from('conversations').update({ status: 'disqualified', ai_enabled: false }).eq('id', conversation.id),
     ])
-    clearInactivityTimers(conversation.id)
+    await clearInactivityTimers(conversation.id)
     createNotification({ tenantId, type: 'disqualification', title: '❌ Contacto descalificado', body: `${from} no estaba interesado`, data: { phone: from } }).catch(() => {})
   }
 }
@@ -647,7 +647,7 @@ async function handleImage(
   )
 
   if (success) {
-    clearInactivityTimers(conversationId)
+    await clearInactivityTimers(conversationId)
     console.log(`[webhook] Payment conversion ${matchedConversion.function_name} triggered for contact ${contactId}`)
     return ''
   }
@@ -856,7 +856,7 @@ async function handleUnassignedPaymentChoice(
   )
 
   if (success) {
-    clearInactivityTimers(conversationId)
+    await clearInactivityTimers(conversationId)
     return true
   }
 
