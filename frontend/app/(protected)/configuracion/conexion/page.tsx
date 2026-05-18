@@ -54,10 +54,6 @@ export default function ConexionPage() {
         const rawPhoneId = data.phone_number_id ?? ''
         const cleanPhoneId = rawPhoneId.includes('@') ? '' : rawPhoneId
 
-        if (rawPhoneId !== cleanPhoneId) {
-          await supabase.from('tenants').update({ phone_number_id: null }).eq('id', data.id)
-        }
-
         setForm({
           whatsapp_number:      data.whatsapp_number ?? '',
           phone_number_id:      cleanPhoneId,
@@ -84,6 +80,14 @@ export default function ConexionPage() {
     if (!form.whatsapp_number.trim()) { setError('El número de WhatsApp es obligatorio'); return }
     if (!form.phone_number_id.trim()) { setError('El Phone Number ID es obligatorio'); return }
     if (!form.meta_token.trim())      { setError('El Meta Access Token es obligatorio'); return }
+    if (!/^\d+$/.test(form.phone_number_id.trim())) {
+      setError('El Phone Number ID debe ser numérico. Parece que el navegador autocompletó otro dato.')
+      return
+    }
+    if (form.waba_id.trim() && !/^\d+$/.test(form.waba_id.trim())) {
+      setError('El WABA ID debe ser numérico. Copia el ID desde WhatsApp API Setup.')
+      return
+    }
 
     setConnecting(true)
     setConnectResults([])
@@ -302,12 +306,32 @@ function DField({ label, value, onChange, placeholder, type = 'text', hint }: {
   label: string; value: string; onChange: (v: string) => void
   placeholder?: string; type?: string; hint?: string
 }) {
+  const lower = label.toLowerCase()
+  const autoComplete = type === 'password' ? 'new-password' : 'off'
+  const inputMode = lower.includes('phone number') || lower.includes('waba')
+    ? 'numeric'
+    : lower.includes('whatsapp')
+      ? 'tel'
+      : undefined
+  const fieldName = `nexbot_${label.toLowerCase().replace(/[^a-z0-9]+/g, '_')}`
+
   return (
     <div>
       <label className="mb-2 block text-xs font-bold uppercase tracking-widest text-gray-500">{label}</label>
-      <input type={type} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder}
+      <input
+        type={type}
+        name={fieldName}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        autoComplete={autoComplete}
+        inputMode={inputMode}
+        spellCheck={false}
+        data-lpignore="true"
+        data-form-type="other"
         style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.10)' }}
-        className="w-full rounded-xl px-4 py-3 text-sm text-white placeholder-gray-600 outline-none transition-all focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20" />
+        className="w-full rounded-xl px-4 py-3 text-sm text-white placeholder-gray-600 outline-none transition-all focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20"
+      />
       {hint && <p className="mt-1.5 text-xs text-gray-600">{hint}</p>}
     </div>
   )

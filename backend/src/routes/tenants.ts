@@ -98,6 +98,17 @@ router.post('/connect-whatsapp', async (req, res) => {
     return res.status(400).json({ error: 'meta_token y phone_number_id son obligatorios' })
   }
 
+  const cleanPhoneNumberId = String(phone_number_id).trim()
+  const cleanWabaId = userWabaId ? String(userWabaId).trim() : ''
+
+  if (!/^\d+$/.test(cleanPhoneNumberId)) {
+    return res.status(400).json({ error: 'Phone Number ID debe ser numérico. Revisa que el navegador no haya autocompletado un correo.' })
+  }
+
+  if (cleanWabaId && !/^\d+$/.test(cleanWabaId)) {
+    return res.status(400).json({ error: 'WABA ID debe ser numérico. Copia el ID correcto desde Meta.' })
+  }
+
   const userId = res.locals.user.id
   const results: { step: string; status: string; detail?: string }[] = []
 
@@ -106,10 +117,10 @@ router.post('/connect-whatsapp', async (req, res) => {
     let wabaId: string | null = null
     try {
       const tokenCheck = await fetch(
-        `https://graph.facebook.com/v20.0/${phone_number_id}?fields=verified_name,display_phone_number`,
+        `https://graph.facebook.com/v20.0/${cleanPhoneNumberId}?fields=verified_name,display_phone_number`,
         { headers: { Authorization: `Bearer ${meta_token}` } }
       )
-      const tokenData = await tokenCheck.json()
+      const tokenData: any = await tokenCheck.json()
 
       if (!tokenCheck.ok) {
         return res.status(400).json({
@@ -129,26 +140,26 @@ router.post('/connect-whatsapp', async (req, res) => {
 
     // ── PASO 2: Obtener WABA ID ──
     // Si el usuario proporcionó el WABA ID, usarlo directamente
-    if (userWabaId) {
-      wabaId = userWabaId
+    if (cleanWabaId) {
+      wabaId = cleanWabaId
       results.push({ step: 'get_waba_id', status: 'ok', detail: `WABA ID (manual): ${wabaId}` })
     } else {
       try {
         const wabaRes = await fetch(
-          `https://graph.facebook.com/v20.0/${phone_number_id}?fields=account_id`,
+          `https://graph.facebook.com/v20.0/${cleanPhoneNumberId}?fields=account_id`,
           { headers: { Authorization: `Bearer ${meta_token}` } }
         )
-        const wabaData = await wabaRes.json()
+        const wabaData: any = await wabaRes.json()
 
         if (wabaData.account_id) {
           wabaId = wabaData.account_id
           results.push({ step: 'get_waba_id', status: 'ok', detail: `WABA ID: ${wabaId}` })
         } else {
           const sharedRes = await fetch(
-            `https://graph.facebook.com/v20.0/${phone_number_id}/whatsapp_business_account`,
+            `https://graph.facebook.com/v20.0/${cleanPhoneNumberId}/whatsapp_business_account`,
             { headers: { Authorization: `Bearer ${meta_token}` } }
           )
-          const sharedData = await sharedRes.json()
+          const sharedData: any = await sharedRes.json()
           wabaId = sharedData?.id ?? null
 
           if (wabaId) {
@@ -175,7 +186,7 @@ router.post('/connect-whatsapp', async (req, res) => {
             },
           }
         )
-        const subData = await subRes.json()
+        const subData: any = await subRes.json()
 
         if (subData.success) {
           results.push({ step: 'subscribe_webhooks', status: 'ok', detail: 'App suscrita a webhooks correctamente' })
@@ -196,7 +207,7 @@ router.post('/connect-whatsapp', async (req, res) => {
     // ── PASO 4: Registrar número de teléfono ──
     try {
       const regRes = await fetch(
-        `https://graph.facebook.com/v20.0/${phone_number_id}/register`,
+        `https://graph.facebook.com/v20.0/${cleanPhoneNumberId}/register`,
         {
           method: 'POST',
           headers: {
@@ -206,7 +217,7 @@ router.post('/connect-whatsapp', async (req, res) => {
           body: JSON.stringify({ messaging_product: 'whatsapp', pin: '123456' }),
         }
       )
-      const regData = await regRes.json()
+      const regData: any = await regRes.json()
 
       if (regData.success || regRes.ok) {
         results.push({ step: 'register_phone', status: 'ok', detail: 'Número registrado en Meta API' })
@@ -227,7 +238,7 @@ router.post('/connect-whatsapp', async (req, res) => {
     try {
       const updateFields: Record<string, unknown> = {
         meta_token,
-        phone_number_id,
+        phone_number_id: cleanPhoneNumberId,
         whatsapp_number: whatsapp_number?.trim() ?? null,
         webhook_verify_token: webhook_verify_token?.trim() || null,
         active: true,

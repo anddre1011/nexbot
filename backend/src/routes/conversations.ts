@@ -18,6 +18,15 @@ async function getTenantId(userId: string): Promise<string | null> {
   return data?.id ?? null
 }
 
+function previewMessage(message: any) {
+  if (!message) return null
+  if (message.type === 'image') return 'Imagen'
+  if (message.type === 'video') return 'Video'
+  if (message.type === 'audio') return 'Audio'
+  if (message.type === 'document' || message.type === 'file') return 'Archivo'
+  return message.content ?? null
+}
+
 // ─── GET /api/conversations ───────────────────────────────────────────────────
 // ?view=kanban → usa get_kanban_conversations con soporte de ?date_from=ISO
 router.get('/', async (req, res) => {
@@ -77,11 +86,65 @@ router.get('/', async (req, res) => {
     return res.json(rows)
   }
 
-  const { data, error } = await supabase.rpc('get_conversation_list', {
-    p_tenant_id: tenantId,
-  })
+  const { data: conversations, error } = await supabase
+    .from('conversations')
+    .select('id, status, campaign_id, created_at, last_read_at, contact_id, contacts!inner(id, phone, name), campaigns(name)')
+    .eq('tenant_id', tenantId)
+    .order('created_at', { ascending: false })
+
   if (error) { res.status(500).json({ error: error.message }); return }
-  res.json(data)
+
+  const conversationIds = (conversations ?? []).map((row: any) => row.id)
+  const { data: messages } = conversationIds.length
+    ? await supabase
+        .from('messages')
+        .select('conversation_id, direction, content, type, created_at')
+        .in('conversation_id', conversationIds)
+        .order('created_at', { ascending: false })
+        .limit(1000)
+    : { data: [] as any[] }
+
+  const lastByConversation = new Map<string, any>()
+  const unreadByConversation = new Map<string, number>()
+
+  for (const message of messages ?? []) {
+    if (!lastByConversation.has(message.conversation_id)) {
+      lastByConversation.set(message.conversation_id, message)
+    }
+  }
+
+  for (const row of conversations ?? []) {
+    const lastReadAt = row.last_read_at ? new Date(row.last_read_at).getTime() : 0
+    const unread = (messages ?? []).filter((message: any) =>
+      message.conversation_id === row.id &&
+      message.direction === 'inbound' &&
+      new Date(message.created_at).getTime() > lastReadAt
+    ).length
+    unreadByConversation.set(row.id, unread)
+  }
+
+  const rows = (conversations ?? []).map((row: any) => {
+    const contact = Array.isArray(row.contacts) ? row.contacts[0] : row.contacts
+    const last = lastByConversation.get(row.id)
+    return {
+      id: row.id,
+      status: row.status,
+      campaign_id: row.campaign_id,
+      created_at: row.created_at,
+      contact_id: row.contact_id,
+      contact_phone: contact?.phone ?? '',
+      contact_name: contact?.name ?? null,
+      last_message: previewMessage(last),
+      last_direction: last?.direction ?? null,
+      last_message_at: last?.created_at ?? row.created_at,
+      unread_count: unreadByConversation.get(row.id) ?? 0,
+    }
+  }).sort((a, b) =>
+    new Date(b.last_message_at ?? b.created_at).getTime() -
+    new Date(a.last_message_at ?? a.created_at).getTime()
+  )
+
+  res.json(rows)
 })
 
 router.delete('/:id/test-reset', async (req, res) => {

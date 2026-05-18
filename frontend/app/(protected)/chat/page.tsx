@@ -448,13 +448,17 @@ export default function ChatPage() {
             <li key={conv.id}>
               <button
                 onClick={() => setSelectedId(conv.id)}
-                className={`flex w-full items-start gap-3 px-3 py-3 text-left transition-colors hover:bg-white/5 ${
-                  selectedId === conv.id ? 'bg-white/10' : ''
+                className={`group relative mx-2 my-1 flex w-[calc(100%-1rem)] items-start gap-3 rounded-xl border px-3 py-3 text-left transition-all hover:-translate-y-0.5 hover:bg-white/5 ${
+                  selectedId === conv.id
+                    ? 'border-emerald-400/30 bg-emerald-500/10 shadow-[0_0_22px_rgba(16,185,129,0.16)]'
+                    : 'border-transparent'
                 }`}
               >
                 {/* avatar */}
                 <div className="relative shrink-0">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-600 text-xs font-bold text-white">
+                  <div className={`flex h-10 w-10 items-center justify-center rounded-full bg-emerald-600 text-xs font-bold text-white transition-shadow ${
+                    selectedId === conv.id ? 'shadow-[0_0_18px_rgba(16,185,129,0.55)]' : 'group-hover:shadow-[0_0_14px_rgba(16,185,129,0.35)]'
+                  }`}>
                     {initials(conv.contact_name, conv.contact_phone)}
                   </div>
                   {conv.status === 'bot' && (

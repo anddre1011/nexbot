@@ -669,8 +669,8 @@ function FlowPanel({ flow, medias, onClose, onSaved }: {
 
           {/* ═══ FLUJO INICIAL (solo modo conversacional) ═══ */}
           {form.type === 'conversational_ai' && (
-            <div style={{ background: 'rgba(124,58,237,0.04)', border: '1px solid rgba(124,58,237,0.12)' }}
-              className="rounded-xl p-4">
+            <div style={{ background: 'rgba(124,58,237,0.04)', border: '1px solid rgba(124,58,237,0.20)', boxShadow: '0 0 28px rgba(124,58,237,0.08)' }}
+              className="rounded-xl p-4 transition-all hover:border-violet-400/40 hover:shadow-[0_0_30px_rgba(124,58,237,0.16)]">
               <FlowStepsBuilder
                 steps={flowSteps}
                 onChange={setFlowSteps}
@@ -680,8 +680,8 @@ function FlowPanel({ flow, medias, onClose, onSaved }: {
           )}
 
           {/* ═══ FLUJOS DE CONVERSIÓN ═══ */}
-          <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)' }}
-            className="rounded-xl p-4">
+          <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(16,185,129,0.16)', boxShadow: '0 0 24px rgba(16,185,129,0.06)' }}
+            className="rounded-xl p-4 transition-all hover:border-emerald-400/35 hover:shadow-[0_0_28px_rgba(16,185,129,0.14)]">
             <ConversionFlowEditor
               flowId={flow?.id ?? null}
               conversions={conversions}
@@ -690,8 +690,8 @@ function FlowPanel({ flow, medias, onClose, onSaved }: {
           </div>
 
           {/* ═══ INACTIVIDAD ═══ */}
-          <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)' }}
-            className="rounded-xl p-4">
+          <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(245,158,11,0.16)', boxShadow: '0 0 24px rgba(245,158,11,0.06)' }}
+            className="rounded-xl p-4 transition-all hover:border-amber-400/35 hover:shadow-[0_0_28px_rgba(245,158,11,0.14)]">
             <InactivityRulesEditor
               rules={inactRules}
               onChange={setInactRules}
