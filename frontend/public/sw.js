@@ -16,3 +16,11 @@ self.addEventListener('notificationclick', (event) => {
   event.notification.close()
   event.waitUntil(clients.openWindow('/dashboard'))
 })
+
+self.addEventListener('fetch', (event) => {
+  if (event.request.mode !== 'navigate') return
+
+  event.respondWith(
+    fetch(event.request).catch(() => fetch('/'))
+  )
+})

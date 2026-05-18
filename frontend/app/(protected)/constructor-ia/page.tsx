@@ -122,20 +122,20 @@ export default function ConstructorIAPage() {
   const panelOpen = panel !== 'closed'
 
   return (
-    <div className="relative flex h-[calc(100vh-0px)] overflow-hidden bg-[#0a0a0f]">
+    <div className="relative flex h-[100dvh] overflow-hidden bg-[#0a0a0f]">
 
       {/* ── lista principal ── */}
-      <div className={`flex flex-1 flex-col transition-all duration-300 ${panelOpen ? 'mr-[500px]' : ''}`}>
+      <div className={`flex min-w-0 flex-1 flex-col transition-all duration-300 ${panelOpen ? 'lg:mr-[500px]' : ''}`}>
 
         {/* ── Top bar ── */}
         <div style={{ background: '#0d0d14', borderBottom: '1px solid rgba(255,255,255,0.05)' }}
-          className="shrink-0 flex items-center gap-3 px-6 py-3">
+          className="shrink-0 flex items-center gap-2 px-3 py-3 sm:gap-3 sm:px-6">
           <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }}
-            className="flex flex-1 items-center gap-2.5 rounded-xl px-4 py-2.5">
+            className="flex min-w-0 flex-1 items-center gap-2.5 rounded-xl px-3 py-2.5 sm:px-4">
             <svg className="h-4 w-4 shrink-0 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
-            <input placeholder="Buscar flujos, bots o configuraciones..." className="flex-1 bg-transparent text-sm text-gray-400 placeholder-gray-600 outline-none" />
+            <input placeholder="Buscar flujos..." className="min-w-0 flex-1 bg-transparent text-sm text-gray-400 placeholder-gray-600 outline-none" />
           </div>
           <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }}
             className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-gray-400">
@@ -145,19 +145,19 @@ export default function ConstructorIAPage() {
           </div>
           <button onClick={() => setPanel('new')}
             style={{ background: 'linear-gradient(135deg, #7c3aed, #2563eb)' }}
-            className="flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold text-white hover:opacity-90 transition-all shrink-0">
+            className="flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-bold text-white hover:opacity-90 transition-all shrink-0 sm:px-4">
             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
             </svg>
-            Crear Flujo
+            <span className="hidden sm:inline">Crear Flujo</span>
           </button>
         </div>
 
         {/* Lista */}
-        <div className="flex-1 overflow-auto p-6 space-y-6">
+        <div className="flex-1 overflow-auto p-3 space-y-5 sm:p-6 sm:space-y-6">
           {/* Header + stats */}
           <div>
-            <h1 className="text-2xl font-bold text-white">Constructor IA</h1>
+            <h1 className="text-xl font-bold text-white sm:text-2xl">Constructor IA</h1>
             <p className="mt-1 text-sm text-gray-500">Gestiona y automatiza tus flujos de conversación con inteligencia artificial.</p>
           </div>
 
@@ -169,19 +169,19 @@ export default function ConstructorIAPage() {
               { label: 'Tokens Usados',       value: '–',                                                                                        icon: '🔢', glow: 'rgba(245,158,11,0.15)'  },
             ].map(s => (
               <div key={s.label} style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', boxShadow: `0 4px 24px ${s.glow}` }}
-                className="rounded-2xl p-4">
+                className="rounded-2xl p-3 sm:p-4">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-500">{s.label}</span>
                   <span className="text-lg">{s.icon}</span>
                 </div>
-                <p className={`text-2xl font-extrabold text-white ${loading ? 'animate-pulse' : ''}`}>{s.value}</p>
+                <p className={`text-xl font-extrabold text-white sm:text-2xl ${loading ? 'animate-pulse' : ''}`}>{s.value}</p>
               </div>
             ))}
           </div>
 
           {/* Flows section */}
           <div className="flex flex-col gap-3">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-lg font-bold text-white">Tus Flujos</h2>
               <div className="flex gap-1">
                 <button style={{ background: 'linear-gradient(135deg, rgba(124,58,237,0.2), rgba(37,99,235,0.12))', border: '1px solid rgba(124,58,237,0.3)' }}
@@ -211,7 +211,7 @@ export default function ConstructorIAPage() {
               {flows.map((flow) => (
                 <div key={flow.id}
                   style={{ background: panel !== 'closed' && typeof panel === 'object' && panel.id === flow.id ? 'rgba(124,58,237,0.08)' : 'rgba(255,255,255,0.03)', border: `1px solid ${panel !== 'closed' && typeof panel === 'object' && panel.id === flow.id ? 'rgba(124,58,237,0.35)' : 'rgba(255,255,255,0.06)'}` }}
-                  className="flex items-center gap-4 rounded-2xl p-5 transition-all hover:bg-white/[0.04] cursor-pointer"
+                  className="flex flex-col gap-3 rounded-2xl p-4 transition-all hover:bg-white/[0.04] cursor-pointer sm:flex-row sm:items-center sm:gap-4 sm:p-5"
                   onClick={() => setPanel(flow)}>
 
                   {/* Icono */}
@@ -244,7 +244,7 @@ export default function ConstructorIAPage() {
                   </div>
 
                   {/* Controles */}
-                  <div className="flex items-center gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
+                  <div className="flex w-full items-center justify-end gap-2 shrink-0 sm:w-auto" onClick={(e) => e.stopPropagation()}>
                     <button
                       onClick={() => toggleActive(flow)}
                       className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${flow.active ? 'bg-indigo-600' : 'bg-white/10'}`}>
@@ -264,7 +264,7 @@ export default function ConstructorIAPage() {
           </div>{/* end flows section */}
 
           {/* Feature cards decorativas */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
             <div style={{ background: 'linear-gradient(135deg, #1a0a2e 0%, #0d1a3a 100%)', border: '1px solid rgba(124,58,237,0.2)', minHeight: '140px' }}
               className="relative rounded-2xl p-6 overflow-hidden flex flex-col justify-end cursor-pointer hover:opacity-90 transition-all">
               <div className="absolute inset-0 opacity-10"
@@ -421,11 +421,11 @@ function FlowPanel({ flow, medias, onClose, onSaved }: {
 
       {/* Panel */}
       <div style={{ background: '#0d0d14', borderLeft: '1px solid rgba(255,255,255,0.07)', boxShadow: '-20px 0 60px rgba(0,0,0,0.5)' }}
-        className="fixed right-0 top-0 z-40 flex h-full w-[500px] flex-col">
+        className="fixed inset-x-0 bottom-0 top-0 z-40 flex h-full w-full flex-col sm:inset-y-0 sm:left-auto sm:right-0 sm:w-[500px]">
 
         {/* Header */}
         <div style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}
-          className="flex items-center justify-between px-6 py-4 shrink-0">
+          className="flex items-center justify-between px-4 py-4 shrink-0 sm:px-6">
           <h2 className="text-base font-bold text-white">{isEdit ? 'Editar flujo' : 'Nuevo flujo'}</h2>
           <button onClick={onClose} className="rounded-lg p-1.5 text-gray-500 hover:bg-white/5 hover:text-gray-300 transition-colors">
             <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -435,15 +435,15 @@ function FlowPanel({ flow, medias, onClose, onSaved }: {
         </div>
 
         {/* Body scrollable */}
-        <div className="flex-1 overflow-y-auto px-6 py-5 flex flex-col gap-5">
+        <div className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-5 sm:px-6 sm:py-5">
 
           {/* Tabs tipo */}
           <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}
-            className="flex gap-1 rounded-xl p-1">
+            className="flex gap-1 overflow-hidden rounded-xl p-1">
             {([['ai', '🤖 IA'], ['conversational_ai', '💬 Conversacional + IA']] as [FlowType, string][]).map(([t, l]) => (
               <button key={t} onClick={() => set('type', t)}
                 style={form.type === t ? { background: 'linear-gradient(135deg, rgba(124,58,237,0.3), rgba(37,99,235,0.2))', border: '1px solid rgba(124,58,237,0.4)' } : {}}
-                className={`flex-1 rounded-lg py-2 text-sm font-medium transition-all ${form.type === t ? 'text-violet-300' : 'text-gray-500 hover:text-gray-300'}`}>
+                className={`flex-1 rounded-lg py-2 text-xs font-medium transition-all sm:text-sm ${form.type === t ? 'text-violet-300' : 'text-gray-500 hover:text-gray-300'}`}>
                 {l}
               </button>
             ))}
@@ -519,7 +519,7 @@ function FlowPanel({ flow, medias, onClose, onSaved }: {
 
                 {showMediaPicker && (
                   <div style={{ background: '#1a1a24', border: '1px solid rgba(255,255,255,0.1)', boxShadow: '0 12px 40px rgba(0,0,0,0.8)' }}
-                    className="absolute left-0 top-7 z-20 rounded-xl p-2 w-64 max-h-64 overflow-y-auto">
+                    className="absolute right-0 top-7 z-20 w-[min(16rem,calc(100vw-2rem))] rounded-xl p-2 max-h-64 overflow-y-auto">
 
                     {/* Upload + rename antes de insertar */}
                     {pendingMedia ? (
@@ -702,12 +702,12 @@ function FlowPanel({ flow, medias, onClose, onSaved }: {
         {/* Footer */}
         {error && (
           <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)' }}
-            className="mx-6 mb-2 rounded-xl px-4 py-2.5 text-xs text-red-400">
+            className="mx-4 mb-2 rounded-xl px-4 py-2.5 text-xs text-red-400 sm:mx-6">
             {error}
           </div>
         )}
         <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}
-          className="flex gap-2 px-6 py-4 shrink-0">
+          className="flex gap-2 px-4 py-3 shrink-0 sm:px-6 sm:py-4">
           <button onClick={onClose}
             style={{ border: '1px solid rgba(255,255,255,0.10)' }}
             className="flex-1 rounded-xl py-2.5 text-sm font-medium text-gray-400 hover:bg-white/5 transition-colors">
