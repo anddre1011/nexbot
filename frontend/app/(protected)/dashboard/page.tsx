@@ -23,13 +23,29 @@ const KANBAN_COLORS: Record<string, string> = {
   converted: '#10b981', disqualified: '#ef4444', abandoned: '#f87171',
 }
 
-function rangeQuery(filter: DateFilter) {
+function rangeQuery(filter: DateFilter, fromDate: string, toDate: string) {
+  if (fromDate || toDate) {
+    const params = new URLSearchParams()
+    if (fromDate) {
+      const from = new Date(`${fromDate}T00:00:00`)
+      params.set('from', from.toISOString())
+    }
+    if (toDate) {
+      const to = new Date(`${toDate}T23:59:59.999`)
+      params.set('to', to.toISOString())
+    }
+    return params.toString()
+  }
   if (filter === 'all') return ''
   const d = new Date()
   if (filter === 'today') d.setHours(0, 0, 0, 0)
   if (filter === 'week') d.setDate(d.getDate() - 7)
   if (filter === 'month') d.setDate(d.getDate() - 30)
   return `from=${encodeURIComponent(d.toISOString())}&to=${encodeURIComponent(new Date().toISOString())}`
+}
+
+function toggleValue(list: string[], value: string) {
+  return list.includes(value) ? list.filter((item) => item !== value) : [...list, value]
 }
 
 export default function DashboardPage() {
@@ -42,36 +58,45 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true)
   const [toasts, setToasts] = useState<Toast[]>([])
   const [dateFilter, setDateFilter] = useState<DateFilter>('today')
-  const [productFilter, setProductFilter] = useState('')
-  const [campaignFilter, setCampaignFilter] = useState('')
+  const [fromDate, setFromDate] = useState('')
+  const [toDate, setToDate] = useState('')
+  const [productFilters, setProductFilters] = useState<string[]>([])
+  const [campaignFilters, setCampaignFilters] = useState<string[]>([])
   const [confirmedOnly, setConfirmedOnly] = useState(true)
   const [saleOptions, setSaleOptions] = useState<SaleFilterOption[]>([])
+  const [allCampaignOptions, setAllCampaignOptions] = useState<{ id: string; name: string }[]>([])
 
   const fetchData = useCallback(async () => {
     setLoading(true)
     try {
-      const params = new URLSearchParams(rangeQuery(dateFilter))
-      if (productFilter) params.set('product', productFilter)
-      if (campaignFilter) params.set('campaign_id', campaignFilter)
+      const params = new URLSearchParams(rangeQuery(dateFilter, fromDate, toDate))
+      if (productFilters.length) params.set('product', productFilters.join(','))
+      if (campaignFilters.length) params.set('campaign_id', campaignFilters.join(','))
       if (confirmedOnly) params.set('status', 'confirmed')
       const qs = params.toString() ? `?${params.toString()}` : ''
+      const evoQs = params.toString()
+        ? `?${params.toString()}`
+        : `?days=${dateFilter === 'week' ? 7 : dateFilter === 'month' ? 30 : dateFilter === 'all' ? 90 : 1}`
       const [ov, camp, leads, prods, evo, kanban] = await Promise.all([
         apiFetch<Overview>(`/api/analytics/overview${qs}`),
         apiFetch<Campaign[]>(`/api/analytics/campaigns${qs}`),
         apiFetch<LeadByCampaign[]>(`/api/analytics/leads-by-campaign${qs}`).catch(() => []),
         apiFetch<TopProduct[]>(`/api/analytics/top-products${qs}`).catch(() => []),
-        apiFetch<ContactEvolution[]>(`/api/analytics/contacts-evolution?days=${dateFilter === 'week' ? 7 : dateFilter === 'month' ? 30 : 1}`).catch(() => []),
-        apiFetch<Record<string, number>>('/api/analytics/kanban-distribution').catch(() => ({})),
+        apiFetch<ContactEvolution[]>(`/api/analytics/contacts-evolution${evoQs}`).catch(() => []),
+        apiFetch<Record<string, number>>(`/api/analytics/kanban-distribution${qs}`).catch(() => ({})),
       ])
       setOverview(ov); setCampaigns(camp); setLeadsByCampaign(leads)
       setTopProducts(prods); setContactsEvo(evo); setKanbanDist(kanban)
     } catch (err) { console.error('[dashboard]', err) }
     finally { setLoading(false) }
-  }, [campaignFilter, confirmedOnly, dateFilter, productFilter])
+  }, [campaignFilters, confirmedOnly, dateFilter, fromDate, productFilters, toDate])
 
   useEffect(() => {
     apiFetch<SaleFilterOption[]>('/api/sales')
       .then(setSaleOptions)
+      .catch(() => {})
+    apiFetch<{ id: string; name: string }[]>('/api/campaigns')
+      .then(setAllCampaignOptions)
       .catch(() => {})
   }, [])
 
@@ -109,13 +134,9 @@ export default function DashboardPage() {
   const kanbanData = Object.entries(kanbanDist).map(([name, value]) => ({ name, value }))
   const kanbanTotal = Object.values(kanbanDist).reduce((a, b) => a + b, 0)
   const productOptions = [...new Set(saleOptions.map((s) => s.product).filter(Boolean))]
-  const campaignOptions = saleOptions
-    .filter((s) => s.campaign_id && s.campaigns?.name)
-    .reduce<{ id: string; name: string }[]>((acc, s) => {
-      if (!s.campaign_id || !s.campaigns?.name || acc.some((c) => c.id === s.campaign_id)) return acc
-      acc.push({ id: s.campaign_id, name: s.campaigns.name })
-      return acc
-    }, [])
+  const campaignOptions = allCampaignOptions.length
+    ? allCampaignOptions
+    : campaigns.map((c) => ({ id: c.id, name: c.name }))
   const L = loading
 
   return (
@@ -159,35 +180,43 @@ export default function DashboardPage() {
       </Link>
     </div>
 
-    <div className="flex-1 overflow-auto p-6 space-y-6">
+    <div className="relative flex-1 overflow-auto p-6 space-y-6">
+        <div className="pointer-events-none fixed right-10 top-24 h-72 w-72 rounded-full bg-violet-600/10 blur-3xl" />
+        <div className="pointer-events-none fixed bottom-16 left-72 h-64 w-64 rounded-full bg-emerald-500/10 blur-3xl" />
         {/* Header */}
-        <div>
-          <h1 className="text-2xl font-bold text-white">Dashboard</h1>
-          <p className="mt-1 text-sm text-gray-500">Sigue tus métricas y gestiona tu atención en tiempo real.</p>
+        <div className="relative overflow-hidden rounded-2xl border border-violet-400/15 bg-gradient-to-br from-violet-500/10 via-white/[0.03] to-emerald-500/10 p-5 shadow-[0_0_40px_rgba(124,58,237,0.12)]">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.28em] text-violet-300">Centro de mando IA</p>
+              <h1 className="text-2xl font-bold text-white">Dashboard</h1>
+              <p className="mt-1 text-sm text-gray-400">Filtra por fechas, productos y campanas para ver que esta vendiendo mejor.</p>
+            </div>
+            <div className="rounded-2xl border border-emerald-400/20 bg-emerald-400/10 px-4 py-3 text-right">
+              <p className="text-[10px] uppercase tracking-widest text-emerald-300">Pulso actual</p>
+              <p className="text-lg font-black text-white">{overview?.conversion_rate ?? '0%'}</p>
+            </div>
+          </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-white/5 bg-white/[0.03] p-3">
+        <div className="relative rounded-2xl border border-white/10 bg-white/[0.04] p-4 shadow-[0_0_32px_rgba(15,23,42,0.25)]">
+          <div className="mb-3 flex flex-wrap items-center gap-2">
           {(['today', 'week', 'month', 'all'] as DateFilter[]).map((f) => (
             <button
               key={f}
-              onClick={() => setDateFilter(f)}
+              onClick={() => { setDateFilter(f); setFromDate(''); setToDate('') }}
               className={`rounded-lg px-3 py-2 text-xs font-semibold transition ${
-                dateFilter === f ? 'bg-violet-600 text-white' : 'bg-white/5 text-gray-400 hover:text-white'
+                dateFilter === f && !fromDate && !toDate ? 'bg-violet-600 text-white shadow-[0_0_18px_rgba(124,58,237,0.35)]' : 'bg-white/5 text-gray-400 hover:text-white'
               }`}
             >
               {f === 'today' ? 'Hoy' : f === 'week' ? '7 dias' : f === 'month' ? '30 dias' : 'Todo'}
             </button>
           ))}
-          <select value={productFilter} onChange={(e) => setProductFilter(e.target.value)}
-            className="rounded-lg border border-white/10 bg-[#141421] px-3 py-2 text-xs text-gray-300 outline-none">
-            <option value="">Todos los productos</option>
-            {productOptions.map((p) => <option key={p} value={p}>{p}</option>)}
-          </select>
-          <select value={campaignFilter} onChange={(e) => setCampaignFilter(e.target.value)}
-            className="rounded-lg border border-white/10 bg-[#141421] px-3 py-2 text-xs text-gray-300 outline-none">
-            <option value="">Todas las campaÃ±as</option>
-            {campaignOptions.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
+          <label className="ml-2 text-[10px] font-bold uppercase tracking-widest text-gray-500">Desde</label>
+          <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)}
+            className="rounded-lg border border-white/10 bg-[#141421] px-3 py-2 text-xs text-gray-300 outline-none focus:border-violet-400" />
+          <label className="text-[10px] font-bold uppercase tracking-widest text-gray-500">Hasta</label>
+          <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)}
+            className="rounded-lg border border-white/10 bg-[#141421] px-3 py-2 text-xs text-gray-300 outline-none focus:border-violet-400" />
           <button
             onClick={() => setConfirmedOnly((v) => !v)}
             className={`rounded-lg px-3 py-2 text-xs font-semibold transition ${
@@ -196,6 +225,26 @@ export default function DashboardPage() {
           >
             Convertidos
           </button>
+          </div>
+
+          <div className="grid gap-3 xl:grid-cols-2">
+            <FilterChips
+              title="Productos"
+              emptyLabel="Todos los productos"
+              options={productOptions.map((p) => ({ id: p, name: p }))}
+              selected={productFilters}
+              onToggle={(id) => setProductFilters((prev) => toggleValue(prev, id))}
+              onClear={() => setProductFilters([])}
+            />
+            <FilterChips
+              title="Campanas"
+              emptyLabel="Todas las campanas"
+              options={campaignOptions}
+              selected={campaignFilters}
+              onToggle={(id) => setCampaignFilters((prev) => toggleValue(prev, id))}
+              onClear={() => setCampaignFilters([])}
+            />
+          </div>
         </div>
 
         {/* KPI Cards */}
@@ -393,6 +442,57 @@ export default function DashboardPage() {
       </div>
     </div>
     </>
+  )
+}
+
+function FilterChips({
+  title,
+  emptyLabel,
+  options,
+  selected,
+  onToggle,
+  onClear,
+}: {
+  title: string
+  emptyLabel: string
+  options: { id: string; name: string }[]
+  selected: string[]
+  onToggle: (id: string) => void
+  onClear: () => void
+}) {
+  return (
+    <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">{title}</p>
+        {selected.length > 0 && (
+          <button onClick={onClear} className="text-[10px] font-semibold text-violet-300 hover:text-white">
+            Limpiar
+          </button>
+        )}
+      </div>
+      <div className="flex max-h-24 flex-wrap gap-2 overflow-y-auto pr-1">
+        {options.length === 0 ? (
+          <span className="text-xs text-gray-600">{emptyLabel}</span>
+        ) : (
+          options.map((option) => {
+            const active = selected.includes(option.id)
+            return (
+              <button
+                key={option.id}
+                onClick={() => onToggle(option.id)}
+                className={`rounded-full border px-3 py-1.5 text-[11px] font-semibold transition ${
+                  active
+                    ? 'border-emerald-400/40 bg-emerald-400/15 text-emerald-200 shadow-[0_0_14px_rgba(16,185,129,0.18)]'
+                    : 'border-white/10 bg-white/5 text-gray-400 hover:border-violet-400/40 hover:text-white'
+                }`}
+              >
+                {option.name}
+              </button>
+            )
+          })
+        )}
+      </div>
+    </div>
   )
 }
 

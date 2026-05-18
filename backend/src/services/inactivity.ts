@@ -97,15 +97,25 @@ async function scheduleInactivityJobs(
     media_url: string | null
     due_at: string
   }> = []
+  let flowHasConfiguredRules = false
 
   if (flowId) {
     const rules = await getInactivityRules(flowId)
+    const { data: sentJobs } = await supabase
+      .from('scheduled_inactivity_jobs')
+      .select('rule_id')
+      .eq('conversation_id', conversationId)
+      .eq('status', 'sent')
+      .not('rule_id', 'is', null)
+
+    const sentRuleIds = new Set((sentJobs ?? []).map((job: any) => job.rule_id).filter(Boolean))
+    flowHasConfiguredRules = rules.some((rule) => rule.delay_ms < WHATSAPP_WINDOW_MS)
     const eligibleRules = rules.filter((rule) => {
       const eligible = rule.delay_ms < WHATSAPP_WINDOW_MS
       if (!eligible) {
         console.log(`[inactivity] Rule ${rule.id} skipped while scheduling because it is outside the 24h window`)
       }
-      return eligible
+      return eligible && !sentRuleIds.has(rule.id)
     })
     const overdueRules = sendOverdueNow
       ? eligibleRules.filter((rule) => anchorMs + rule.delay_ms <= now)
@@ -133,9 +143,13 @@ async function scheduleInactivityJobs(
         due_at: new Date(dueMs).toISOString(),
       })
     }
+
+    if (jobs.length === 0 && flowHasConfiguredRules) {
+      console.log(`[inactivity] No pending inactivity rules left for conv ${conversationId}`)
+    }
   }
 
-  if (jobs.length === 0) {
+  if (jobs.length === 0 && !flowHasConfiguredRules) {
     const fallbackDueMs = anchorMs + FOLLOWUP_DELAY_MS
     jobs.push({
       tenant_id: tenantId,
