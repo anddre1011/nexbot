@@ -19,6 +19,14 @@ type ScheduledInactivityJob = {
   created_at: string
 }
 
+type BusinessDay = {
+  start?: string
+  end?: string
+  enabled?: boolean
+}
+
+type BusinessHours = Record<string, BusinessDay>
+
 type ConversationSeed = {
   id: string
   tenant_id: string
@@ -32,6 +40,8 @@ const FOLLOWUP_DELAY_MS = parseInt(process.env.FOLLOWUP_DELAY_MS ?? '3600000')
 const INACTIVITY_SEND_STATUSES = new Set(['bot', 'open'])
 const WORKER_INTERVAL_MS = parseInt(process.env.INACTIVITY_WORKER_INTERVAL_MS ?? '60000')
 const MAX_JOBS_PER_TICK = parseInt(process.env.INACTIVITY_MAX_JOBS_PER_TICK ?? '25')
+const BUSINESS_DAY_KEYS = ['domingo', 'lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado'] as const
+const BOLIVIA_OFFSET_MS = 4 * 60 * 60 * 1000
 
 let workerStarted = false
 
@@ -98,6 +108,7 @@ async function scheduleInactivityJobs(
     due_at: string
   }> = []
   let flowHasConfiguredRules = false
+  const businessHours = await getTenantBusinessHours(tenantId)
 
   if (flowId) {
     const rules = await getInactivityRules(flowId)
@@ -127,9 +138,24 @@ async function scheduleInactivityJobs(
       ? [overdueRules[overdueRules.length - 1], ...futureRules]
       : futureRules
 
+    let previousRuleDelay = 0
+    let previousDueMs = 0
+
     for (const rule of rulesToSchedule) {
       const originalDueMs = anchorMs + rule.delay_ms
-      const dueMs = sendOverdueNow && originalDueMs <= now ? now + 5000 : originalDueMs
+      const minimumDueMs = previousDueMs > 0
+        ? previousDueMs + Math.max(60000, rule.delay_ms - previousRuleDelay)
+        : originalDueMs
+      const targetDueMs = sendOverdueNow && originalDueMs <= now ? now + 5000 : Math.max(originalDueMs, minimumDueMs)
+      const dueMs = nextBusinessTimeMs(targetDueMs, businessHours)
+
+      previousRuleDelay = rule.delay_ms
+      previousDueMs = dueMs
+
+      if (dueMs > anchorMs + WHATSAPP_WINDOW_MS) {
+        console.log(`[inactivity] Rule ${rule.id} skipped because business hours move it outside the 24h window`)
+        continue
+      }
 
       jobs.push({
         tenant_id: tenantId,
@@ -151,17 +177,22 @@ async function scheduleInactivityJobs(
 
   if (jobs.length === 0 && !flowHasConfiguredRules) {
     const fallbackDueMs = anchorMs + FOLLOWUP_DELAY_MS
-    jobs.push({
-      tenant_id: tenantId,
-      conversation_id: conversationId,
-      contact_phone: contactPhone,
-      flow_id: flowId ?? null,
-      rule_id: null,
-      kind: 'text',
-      content: 'Hola, solo queria saber si tienes alguna duda sobre el producto. Estoy aqui para ayudarte.',
-      media_url: null,
-      due_at: new Date(sendOverdueNow && fallbackDueMs <= now ? now + 5000 : fallbackDueMs).toISOString(),
-    })
+    const dueMs = nextBusinessTimeMs(sendOverdueNow && fallbackDueMs <= now ? now + 5000 : fallbackDueMs, businessHours)
+    if (dueMs <= anchorMs + WHATSAPP_WINDOW_MS) {
+      jobs.push({
+        tenant_id: tenantId,
+        conversation_id: conversationId,
+        contact_phone: contactPhone,
+        flow_id: flowId ?? null,
+        rule_id: null,
+        kind: 'text',
+        content: 'Hola, solo queria saber si tienes alguna duda sobre el producto. Estoy aqui para ayudarte.',
+        media_url: null,
+        due_at: new Date(dueMs).toISOString(),
+      })
+    } else {
+      console.log(`[inactivity] Fallback follow-up skipped because business hours move it outside the 24h window`)
+    }
   }
 
   const closeDueMs = anchorMs + Math.min(CLOSE_DELAY_MS, WHATSAPP_WINDOW_MS)
@@ -269,6 +300,13 @@ async function processInactivityJob(job: ScheduledInactivityJob) {
 
       await closeConversation(job.conversation_id)
       await markJobDone(job.id)
+      return
+    }
+
+    const businessHours = await getTenantBusinessHours(job.tenant_id)
+    const allowedAtMs = nextBusinessTimeMs(Date.now(), businessHours)
+    if (allowedAtMs > Date.now() + 30000) {
+      await postponeClaimedJob(job.id, allowedAtMs)
       return
     }
 
@@ -390,6 +428,17 @@ async function markJobDone(id: string) {
     .eq('id', id)
 }
 
+async function postponeClaimedJob(id: string, dueAtMs: number) {
+  await supabase
+    .from('scheduled_inactivity_jobs')
+    .update({
+      status: 'pending',
+      due_at: new Date(dueAtMs).toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', id)
+}
+
 async function markJobSkipped(id: string, reason: string) {
   await supabase
     .from('scheduled_inactivity_jobs')
@@ -464,6 +513,76 @@ async function getTenantCredentials(tenantId: string): Promise<TenantCredentials
     metaToken: (data as any)?.meta_token ?? null,
     phoneNumberId: (data as any)?.phone_number_id ?? null,
   }
+}
+
+async function getTenantBusinessHours(tenantId: string): Promise<BusinessHours | null> {
+  const { data, error } = await supabase
+    .from('tenants')
+    .select('business_hours')
+    .eq('id', tenantId)
+    .maybeSingle()
+
+  if (error) {
+    console.error(`[inactivity] Could not load business hours for tenant ${tenantId}:`, error.message)
+    return null
+  }
+
+  return ((data as any)?.business_hours ?? null) as BusinessHours | null
+}
+
+function nextBusinessTimeMs(targetMs: number, hours: BusinessHours | null) {
+  if (!hours) return targetMs
+
+  let cursorMs = targetMs
+  for (let i = 0; i < 8; i++) {
+    const local = toBoliviaLocal(cursorMs)
+    const key = BUSINESS_DAY_KEYS[local.day]
+    const config = hours[key]
+
+    if (!config?.enabled) {
+      cursorMs = boliviaLocalToUtcMs(local.year, local.month, local.date + 1, 0, 0)
+      continue
+    }
+
+    const start = parseHour(config.start ?? '00:00')
+    const end = parseHour(config.end ?? '23:59')
+    if (end <= start) {
+      cursorMs = boliviaLocalToUtcMs(local.year, local.month, local.date + 1, 0, 0)
+      continue
+    }
+
+    if (local.minuteOfDay < start) {
+      return boliviaLocalToUtcMs(local.year, local.month, local.date, Math.floor(start / 60), start % 60)
+    }
+
+    if (local.minuteOfDay < end) {
+      return cursorMs
+    }
+
+    cursorMs = boliviaLocalToUtcMs(local.year, local.month, local.date + 1, 0, 0)
+  }
+
+  return targetMs
+}
+
+function toBoliviaLocal(utcMs: number) {
+  const d = new Date(utcMs - BOLIVIA_OFFSET_MS)
+  return {
+    year: d.getUTCFullYear(),
+    month: d.getUTCMonth(),
+    date: d.getUTCDate(),
+    day: d.getUTCDay(),
+    minuteOfDay: d.getUTCHours() * 60 + d.getUTCMinutes(),
+  }
+}
+
+function boliviaLocalToUtcMs(year: number, month: number, date: number, hour: number, minute: number) {
+  return Date.UTC(year, month, date, hour, minute) + BOLIVIA_OFFSET_MS
+}
+
+function parseHour(value: string) {
+  const [hour, minute] = value.split(':').map(Number)
+  return (Number.isFinite(hour) ? hour : 0) * 60 + (Number.isFinite(minute) ? minute : 0)
 }
 
 function canSendInactivity(conv: ConversationState | null) {

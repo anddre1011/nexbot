@@ -1,3 +1,11 @@
+self.addEventListener('install', () => {
+  self.skipWaiting()
+})
+
+self.addEventListener('activate', (event) => {
+  event.waitUntil(clients.claim())
+})
+
 self.addEventListener('push', (event) => {
   if (!event.data) return
   const data = event.data.json()
@@ -15,12 +23,4 @@ self.addEventListener('push', (event) => {
 self.addEventListener('notificationclick', (event) => {
   event.notification.close()
   event.waitUntil(clients.openWindow('/dashboard'))
-})
-
-self.addEventListener('fetch', (event) => {
-  if (event.request.mode !== 'navigate') return
-
-  event.respondWith(
-    fetch(event.request).catch(() => fetch('/'))
-  )
 })
