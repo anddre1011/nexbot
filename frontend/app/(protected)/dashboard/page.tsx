@@ -65,6 +65,7 @@ export default function DashboardPage() {
   const [confirmedOnly, setConfirmedOnly] = useState(true)
   const [saleOptions, setSaleOptions] = useState<SaleFilterOption[]>([])
   const [allCampaignOptions, setAllCampaignOptions] = useState<{ id: string; name: string }[]>([])
+  const [filtersOpen, setFiltersOpen] = useState(false)
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -137,6 +138,7 @@ export default function DashboardPage() {
   const campaignOptions = allCampaignOptions.length
     ? allCampaignOptions
     : campaigns.map((c) => ({ id: c.id, name: c.name }))
+  const activeFilterCount = productFilters.length + campaignFilters.length + (confirmedOnly ? 1 : 0) + (fromDate || toDate ? 1 : 0)
   const L = loading
 
   return (
@@ -184,67 +186,77 @@ export default function DashboardPage() {
         <div className="pointer-events-none fixed right-10 top-24 h-72 w-72 rounded-full bg-violet-600/10 blur-3xl" />
         <div className="pointer-events-none fixed bottom-16 left-72 h-64 w-64 rounded-full bg-emerald-500/10 blur-3xl" />
         {/* Header */}
-        <div className="relative overflow-hidden rounded-2xl border border-violet-400/15 bg-gradient-to-br from-violet-500/10 via-white/[0.03] to-emerald-500/10 p-5 shadow-[0_0_40px_rgba(124,58,237,0.12)]">
+        <div className="relative overflow-hidden rounded-2xl border border-violet-400/15 bg-gradient-to-br from-violet-500/10 via-white/[0.03] to-emerald-500/10 p-4 shadow-[0_0_40px_rgba(124,58,237,0.12)]">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
-              <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.28em] text-violet-300">Centro de mando IA</p>
-              <h1 className="text-2xl font-bold text-white">Dashboard</h1>
-              <p className="mt-1 text-sm text-gray-400">Filtra por fechas, productos y campanas para ver que esta vendiendo mejor.</p>
+              <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.28em] text-violet-300">Centro de mando IA</p>
+              <h1 className="text-xl font-bold text-white">Dashboard</h1>
+              <p className="mt-0.5 text-xs text-gray-500">Metricas, ventas y campanas en tiempo real.</p>
             </div>
-            <div className="rounded-2xl border border-emerald-400/20 bg-emerald-400/10 px-4 py-3 text-right">
+            <div className="rounded-xl border border-emerald-400/20 bg-emerald-400/10 px-4 py-2 text-right">
               <p className="text-[10px] uppercase tracking-widest text-emerald-300">Pulso actual</p>
               <p className="text-lg font-black text-white">{overview?.conversion_rate ?? '0%'}</p>
             </div>
           </div>
         </div>
 
-        <div className="relative rounded-2xl border border-white/10 bg-white/[0.04] p-4 shadow-[0_0_32px_rgba(15,23,42,0.25)]">
-          <div className="mb-3 flex flex-wrap items-center gap-2">
-          {(['today', 'week', 'month', 'all'] as DateFilter[]).map((f) => (
+        <div className="relative rounded-2xl border border-white/10 bg-white/[0.04] p-3 shadow-[0_0_32px_rgba(15,23,42,0.25)]">
+          <div className="flex flex-wrap items-center gap-2">
+            {(['today', 'week', 'month', 'all'] as DateFilter[]).map((f) => (
+              <button
+                key={f}
+                onClick={() => { setDateFilter(f); setFromDate(''); setToDate('') }}
+                className={`rounded-lg px-3 py-2 text-xs font-semibold transition ${
+                  dateFilter === f && !fromDate && !toDate ? 'bg-violet-600 text-white shadow-[0_0_18px_rgba(124,58,237,0.35)]' : 'bg-white/5 text-gray-400 hover:text-white'
+                }`}
+              >
+                {f === 'today' ? 'Hoy' : f === 'week' ? '7 dias' : f === 'month' ? '30 dias' : 'Todo'}
+              </button>
+            ))}
+            <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)}
+              className="h-9 rounded-lg border border-white/10 bg-[#141421] px-3 text-xs text-gray-300 outline-none focus:border-violet-400" />
+            <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)}
+              className="h-9 rounded-lg border border-white/10 bg-[#141421] px-3 text-xs text-gray-300 outline-none focus:border-violet-400" />
             <button
-              key={f}
-              onClick={() => { setDateFilter(f); setFromDate(''); setToDate('') }}
+              onClick={() => setConfirmedOnly((v) => !v)}
               className={`rounded-lg px-3 py-2 text-xs font-semibold transition ${
-                dateFilter === f && !fromDate && !toDate ? 'bg-violet-600 text-white shadow-[0_0_18px_rgba(124,58,237,0.35)]' : 'bg-white/5 text-gray-400 hover:text-white'
+                confirmedOnly ? 'bg-emerald-600 text-white' : 'bg-white/5 text-gray-400 hover:text-white'
               }`}
             >
-              {f === 'today' ? 'Hoy' : f === 'week' ? '7 dias' : f === 'month' ? '30 dias' : 'Todo'}
+              Convertidos
             </button>
-          ))}
-          <label className="ml-2 text-[10px] font-bold uppercase tracking-widest text-gray-500">Desde</label>
-          <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)}
-            className="rounded-lg border border-white/10 bg-[#141421] px-3 py-2 text-xs text-gray-300 outline-none focus:border-violet-400" />
-          <label className="text-[10px] font-bold uppercase tracking-widest text-gray-500">Hasta</label>
-          <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)}
-            className="rounded-lg border border-white/10 bg-[#141421] px-3 py-2 text-xs text-gray-300 outline-none focus:border-violet-400" />
-          <button
-            onClick={() => setConfirmedOnly((v) => !v)}
-            className={`rounded-lg px-3 py-2 text-xs font-semibold transition ${
-              confirmedOnly ? 'bg-emerald-600 text-white' : 'bg-white/5 text-gray-400 hover:text-white'
-            }`}
-          >
-            Convertidos
-          </button>
+            <button
+              onClick={() => setFiltersOpen((v) => !v)}
+              className={`ml-auto flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-bold transition ${
+                filtersOpen ? 'border-violet-400/40 bg-violet-500/15 text-violet-200' : 'border-white/10 bg-white/5 text-gray-300 hover:text-white'
+              }`}
+            >
+              Filtros
+              {activeFilterCount > 0 && <span className="rounded-full bg-violet-500 px-1.5 py-0.5 text-[10px] text-white">{activeFilterCount}</span>}
+              <span className={`transition-transform ${filtersOpen ? 'rotate-180' : ''}`}>⌄</span>
+            </button>
           </div>
 
-          <div className="grid gap-3 xl:grid-cols-2">
-            <FilterChips
-              title="Productos"
-              emptyLabel="Todos los productos"
-              options={productOptions.map((p) => ({ id: p, name: p }))}
-              selected={productFilters}
-              onToggle={(id) => setProductFilters((prev) => toggleValue(prev, id))}
-              onClear={() => setProductFilters([])}
-            />
-            <FilterChips
-              title="Campanas"
-              emptyLabel="Todas las campanas"
-              options={campaignOptions}
-              selected={campaignFilters}
-              onToggle={(id) => setCampaignFilters((prev) => toggleValue(prev, id))}
-              onClear={() => setCampaignFilters([])}
-            />
-          </div>
+          {filtersOpen && (
+            <div className="mt-3 grid gap-3 xl:grid-cols-2">
+              <FilterChips
+                title="Productos"
+                emptyLabel="Todos los productos"
+                options={productOptions.map((p) => ({ id: p, name: p }))}
+                selected={productFilters}
+                onToggle={(id) => setProductFilters((prev) => toggleValue(prev, id))}
+                onClear={() => setProductFilters([])}
+              />
+              <FilterChips
+                title="Campanas"
+                emptyLabel="Todas las campanas"
+                options={campaignOptions}
+                selected={campaignFilters}
+                onToggle={(id) => setCampaignFilters((prev) => toggleValue(prev, id))}
+                onClear={() => setCampaignFilters([])}
+              />
+            </div>
+          )}
         </div>
 
         {/* KPI Cards */}
