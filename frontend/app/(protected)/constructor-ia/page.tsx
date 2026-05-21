@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { apiFetch } from '@/lib/api'
+import { optimizeUploadFile } from '@/lib/media-compress'
 import FlowStepsBuilder from './FlowStepsBuilder'
 import ConversionFlowEditor from './ConversionFlowEditor'
 import InactivityRulesEditor from './InactivityRulesEditor'
@@ -568,13 +569,14 @@ function FlowPanel({ flow, medias, onClose, onSaved }: {
                             const file = e.target.files?.[0]; if (!file) return
                             setUploadingMedia(true)
                             try {
-                              const ext = file.type.split('/')[0]
+                              const uploadFile = await optimizeUploadFile(file)
+                              const ext = uploadFile.type.split('/')[0]
                               const short = `${ext}_${Date.now().toString().slice(-4)}`
                               // Solo subir a storage — no guardar en DB todavía (se guarda al confirmar nombre)
                               const { createClient } = await import('@/lib/supabase/client')
                               const { data: { session } } = await createClient().auth.getSession()
                               const token = session?.access_token ?? ''
-                              const fd = new FormData(); fd.append('file', file)
+                              const fd = new FormData(); fd.append('file', uploadFile)
                               const res = await fetch('https://nexbot.pro/api/upload/flow-media', {
                                 method: 'POST', body: fd, headers: { Authorization: `Bearer ${token}` }
                               })

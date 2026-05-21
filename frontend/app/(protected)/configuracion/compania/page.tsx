@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { apiFetch } from '@/lib/api'
+import { optimizeUploadFile } from '@/lib/media-compress'
 
 const TIMEZONES = ['America/La_Paz', 'America/Lima', 'America/Bogota', 'America/Santiago', 'America/Buenos_Aires', 'America/Mexico_City', 'America/New_York', 'Europe/Madrid']
 const LANGUAGES = [{ v: 'es', l: 'Español' }, { v: 'en', l: 'English' }, { v: 'pt', l: 'Português' }]
@@ -36,10 +37,11 @@ export default function CompaniaPage() {
     if (!file) return
     setUploading(true)
     try {
+      const uploadFile = await optimizeUploadFile(file)
       const supabase = createClient()
-      const ext = file.name.split('.').pop()
+      const ext = uploadFile.name.split('.').pop()
       const path = `logos/${Date.now()}.${ext}`
-      const { error } = await supabase.storage.from('media').upload(path, file, { upsert: true })
+      const { error } = await supabase.storage.from('media').upload(path, uploadFile, { upsert: true, cacheControl: '31536000' })
       if (error) throw error
       const { data } = supabase.storage.from('media').getPublicUrl(path)
       setForm((p) => ({ ...p, logo_url: data.publicUrl }))

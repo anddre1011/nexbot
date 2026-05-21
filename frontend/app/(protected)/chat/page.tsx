@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { apiFetch } from '@/lib/api'
+import { optimizeUploadFile } from '@/lib/media-compress'
 
 // ─── tipos ────────────────────────────────────────────────────────────────────
 interface Conversation {
@@ -78,17 +79,17 @@ const STATUS_COLORS: Record<string, string> = {
 function renderMessageContent(msg: Message) {
   if (msg.type === 'image') {
     return isUrl(msg.content)
-      ? <img src={msg.content!} alt="Imagen" className="max-h-72 max-w-full rounded-lg object-contain" />
+      ? <img src={msg.content!} alt="Imagen" loading="lazy" decoding="async" className="max-h-72 max-w-full rounded-lg object-contain" />
       : <span className="italic text-gray-400">Imagen</span>
   }
   if (msg.type === 'video') {
     return isUrl(msg.content)
-      ? <video src={msg.content!} controls className="max-h-72 max-w-full rounded-lg" />
+      ? <video src={msg.content!} controls preload="none" className="max-h-72 max-w-full rounded-lg" />
       : <span className="italic text-gray-400">Video</span>
   }
   if (msg.type === 'audio') {
     return isUrl(msg.content)
-      ? <audio src={msg.content!} controls className="max-w-full" />
+      ? <audio src={msg.content!} controls preload="none" className="max-w-full" />
       : <span className="italic text-gray-400">{msg.content || 'Audio'}</span>
   }
   if (msg.type === 'document' || msg.type === 'file') {
@@ -263,18 +264,19 @@ export default function ChatPage() {
     if (!file || !selectedId || sending) return
     setSending(true)
     try {
+      const uploadFile = await optimizeUploadFile(file)
       const fd = new FormData()
-      fd.append('file', file)
+      fd.append('file', uploadFile)
       const { url } = await apiFetch<{ url: string }>('/api/upload/flow-media', {
         method: 'POST',
         body: fd,
         rawBody: true,
       } as Parameters<typeof apiFetch>[1])
 
-      const type = mediaTypeFromFile(file)
+      const type = mediaTypeFromFile(uploadFile)
       const msg = await apiFetch<Message>(`/api/conversations/${selectedId}/send-media`, {
         method: 'POST',
-        body: JSON.stringify({ media_url: url, type, filename: file.name }),
+        body: JSON.stringify({ media_url: url, type, filename: uploadFile.name }),
       })
       setMessages(prev => [...prev, msg])
       setConversations(prev => prev.map(c => c.id === selectedId ? { ...c, status: 'human' } : c))

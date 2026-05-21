@@ -1,4 +1,5 @@
 import { createClient } from './supabase/client'
+import { optimizeUploadFile } from './media-compress'
 
 const API = 'https://nexbot.pro'
 
@@ -22,10 +23,11 @@ export async function uploadFlowMedia(
   suggestedName?: string
 ): Promise<UploadResult> {
   const token = await getToken()
+  const uploadFile = await optimizeUploadFile(file)
 
   // 1. Subir a Storage
   const fd = new FormData()
-  fd.append('file', file)
+  fd.append('file', uploadFile)
 
   const uploadRes = await fetch(`${API}/api/upload/flow-media`, {
     method:  'POST',
@@ -42,14 +44,14 @@ export async function uploadFlowMedia(
 
   // 2. Generar nombre de variable limpio
   const base = suggestedName
-    ?? file.name.replace(/\.[^.]+$/, '').replace(/[^a-zA-Z0-9]/g, '_').toLowerCase()
+    ?? uploadFile.name.replace(/\.[^.]+$/, '').replace(/[^a-zA-Z0-9]/g, '_').toLowerCase()
   const varName = (base.slice(0, 25) || `media_${Date.now().toString().slice(-4)}`)
   const variable = `{{media:${varName}}}`
 
   // 3. Guardar en tabla media para que resolveMediaTags lo encuentre
-  const mediaType = file.type.startsWith('video/') ? 'video'
-    : file.type.startsWith('audio/') ? 'audio'
-    : file.type === 'application/pdf' ? 'document'
+  const mediaType = uploadFile.type.startsWith('video/') ? 'video'
+    : uploadFile.type.startsWith('audio/') ? 'audio'
+    : uploadFile.type === 'application/pdf' ? 'document'
     : 'image'
 
   const saveRes = await fetch(`${API}/api/media`, {

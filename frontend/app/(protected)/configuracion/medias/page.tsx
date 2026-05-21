@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { apiFetch } from '@/lib/api'
+import { optimizeUploadFile } from '@/lib/media-compress'
 
 interface Media { id: string; name: string; type: string; url: string; size_bytes: number | null; folder: string; variable: string | null; created_at: string }
 
@@ -50,17 +51,18 @@ export default function MediasPage() {
     try {
       const supabase = createClient()
       for (const file of files) {
-        const ext    = file.name.split('.').pop()
-        const clean  = file.name.replace(/\.[^.]+$/, '').replace(/[^a-zA-Z0-9-_]/g, '_')
+        const uploadFile = await optimizeUploadFile(file)
+        const ext    = uploadFile.name.split('.').pop()
+        const clean  = uploadFile.name.replace(/\.[^.]+$/, '').replace(/[^a-zA-Z0-9-_]/g, '_')
         const path   = `${folder}/${Date.now()}_${clean}.${ext}`
-        const { error: upErr } = await supabase.storage.from('media').upload(path, file)
+        const { error: upErr } = await supabase.storage.from('media').upload(path, uploadFile, { cacheControl: '31536000' })
         if (upErr) { console.error(upErr); continue }
         const { data } = supabase.storage.from('media').getPublicUrl(path)
         await apiFetch('/api/media', {
           method: 'POST',
           body: JSON.stringify({
-            name: file.name, type: mimeToType(file.type),
-            url: data.publicUrl, size_bytes: file.size,
+            name: uploadFile.name, type: mimeToType(uploadFile.type),
+            url: data.publicUrl, size_bytes: uploadFile.size,
             folder, variable: `{{media:${clean}}}`,
           }),
         })

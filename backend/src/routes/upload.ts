@@ -7,6 +7,8 @@ import { requireAuth } from '../middlewares/auth'
 const router = Router()
 router.use(requireAuth)
 
+const MAX_FLOW_MEDIA_BYTES = 16 * 1024 * 1024
+
 // ─── Multer para imágenes de productos (solo imagen, 2MB) ────────────────────
 const uploadImage = multer({
   storage: multer.memoryStorage(),
@@ -17,10 +19,10 @@ const uploadImage = multer({
   },
 })
 
-// ─── Multer para medias de flujos (imagen/video/audio/pdf, 50MB) ─────────────
+// ─── Multer para medias de flujos (imagen/video/audio/pdf, 16MB) ─────────────
 const uploadMedia = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 50 * 1024 * 1024 },
+  limits: { fileSize: MAX_FLOW_MEDIA_BYTES },
   fileFilter: (_req, file, cb) => {
     const allowed = [
       'image/', 'video/', 'audio/',
@@ -53,7 +55,7 @@ async function uploadToStorage(
 
   const { error } = await supabase.storage
     .from('media')
-    .upload(fileName, buffer, { contentType: mimetype, upsert: false })
+    .upload(fileName, buffer, { contentType: mimetype, upsert: false, cacheControl: '31536000' })
 
   if (error) {
     if (error.message.includes('not found') || error.message.toLowerCase().includes('bucket')) {

@@ -431,6 +431,7 @@ async function persistInboundMedia(
     const { error } = await supabase.storage.from('media').upload(path, buffer, {
       contentType: mimeType,
       upsert: false,
+      cacheControl: '31536000',
     })
     if (error) throw error
 

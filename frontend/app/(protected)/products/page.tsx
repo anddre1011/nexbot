@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { apiFetch } from '@/lib/api'
+import { optimizeUploadFile } from '@/lib/media-compress'
 
 const MAX_FILE_SIZE = 2 * 1024 * 1024 // 2MB
 
@@ -319,18 +320,19 @@ function ProductModal({
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   async function handleImageUpload(file: File) {
-    if (file.size > MAX_FILE_SIZE) {
-      setError('La imagen debe pesar menos de 2MB')
-      return
-    }
     if (!file.type.startsWith('image/')) {
       setError('Solo se permiten archivos de imagen')
       return
     }
     setUploading(true); setError('')
     try {
+      const uploadFile = await optimizeUploadFile(file)
+      if (uploadFile.size > MAX_FILE_SIZE) {
+        setError('La imagen debe pesar menos de 2MB despues de comprimir')
+        return
+      }
       const formData = new FormData()
-      formData.append('file', file)
+      formData.append('file', uploadFile)
       const res = await apiFetch<{ url: string }>('/api/upload/product-banner', {
         method: 'POST',
         body: formData,

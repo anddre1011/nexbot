@@ -1,6 +1,7 @@
 'use client'
 import { useState } from 'react'
 import { apiFetch } from '@/lib/api'
+import { optimizeUploadFile } from '@/lib/media-compress'
 
 export interface InactRule {
   id: string; position: number; delay_ms: number
@@ -56,8 +57,9 @@ export default function InactivityRulesEditor({ rules, onChange }: {
     const rule = rules[idx]
     setUploading(rule.id)
     try {
+      const uploadFile = await optimizeUploadFile(file)
       const fd = new FormData()
-      fd.append('file', file)
+      fd.append('file', uploadFile)
       const data = await apiFetch<{ url: string }>('/api/upload/flow-media', {
         method: 'POST', body: fd, rawBody: true,
       } as Parameters<typeof apiFetch>[1])

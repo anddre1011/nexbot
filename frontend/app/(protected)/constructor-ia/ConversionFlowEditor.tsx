@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { apiFetch } from '@/lib/api'
+import { optimizeUploadFile } from '@/lib/media-compress'
 
 interface Product { id: string; name: string; price: number; currency: string; delivery_url: string | null }
 type DeliveryStepType = 'text' | 'image' | 'video' | 'audio' | 'document'
@@ -68,8 +69,9 @@ export default function ConversionFlowEditor({ flowId, conversions, onChange }: 
   }
 
   async function uploadDeliveryFile(idx: number, file: File) {
+    const uploadFile = await optimizeUploadFile(file)
     const fd = new FormData()
-    fd.append('file', file)
+    fd.append('file', uploadFile)
     const { url } = await apiFetch<{ url: string }>('/api/upload/flow-media', {
       method: 'POST',
       body: fd,
@@ -79,8 +81,8 @@ export default function ConversionFlowEditor({ flowId, conversions, onChange }: 
     const conv = conversions[idx]
     const steps = [...(conv.confirm_steps ?? []), {
       id: crypto.randomUUID(),
-      type: mediaTypeFromFile(file),
-      content: file.name,
+      type: mediaTypeFromFile(uploadFile),
+      content: uploadFile.name,
       media_url: url,
     }]
     update(idx, { confirm_steps: steps })
