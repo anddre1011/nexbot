@@ -27,6 +27,88 @@ function previewMessage(message: any) {
   return message.content ?? null
 }
 
+function previewStoredContent(content: string | null) {
+  if (!content) return null
+  if (/^https?:\/\//i.test(content)) {
+    if (/\.(png|jpe?g|webp|gif)(\?|$)/i.test(content)) return 'Imagen'
+    if (/\.(mp4|mov|webm)(\?|$)/i.test(content)) return 'Video'
+    if (/\.(mp3|ogg|wav|m4a)(\?|$)/i.test(content)) return 'Audio'
+    return 'Archivo'
+  }
+  return content
+}
+
+async function fetchLatestSaleByContact(tenantId: string, contactIds: string[]) {
+  const { data: sales } = contactIds.length
+    ? await supabase
+        .from('sales')
+        .select('contact_id, amount, created_at')
+        .eq('tenant_id', tenantId)
+        .eq('status', 'confirmed')
+        .in('contact_id', contactIds)
+        .order('created_at', { ascending: false })
+    : { data: [] as any[] }
+
+  const latestSaleByContact = new Map<string, number>()
+  for (const sale of sales ?? []) {
+    if (!latestSaleByContact.has(sale.contact_id)) latestSaleByContact.set(sale.contact_id, Number(sale.amount))
+  }
+  return latestSaleByContact
+}
+
+async function fetchLatestMessagesByConversation(conversationIds: string[]) {
+  const limit = Math.min(Math.max(conversationIds.length * 20, 1000), 5000)
+  const { data, error } = conversationIds.length
+    ? await supabase
+        .from('messages')
+        .select('conversation_id, direction, content, type, created_at')
+        .in('conversation_id', conversationIds)
+        .order('created_at', { ascending: false })
+        .limit(limit)
+    : { data: [] as any[], error: null }
+
+  const messages = data ?? []
+  const lastByConversation = new Map<string, any>()
+
+  if (!error) {
+    for (const message of messages) {
+      if (!lastByConversation.has(message.conversation_id)) {
+        lastByConversation.set(message.conversation_id, message)
+      }
+    }
+  } else {
+    console.error('[conversations] latest messages batch error:', error.message)
+  }
+
+  const shouldFallback = !!error || messages.length >= limit
+  const missingIds = shouldFallback
+    ? conversationIds.filter((id) => !lastByConversation.has(id)).slice(0, 200)
+    : []
+  if (missingIds.length) {
+    const fallback = await Promise.all(
+      missingIds.map((id) =>
+        supabase
+          .from('messages')
+          .select('conversation_id, direction, content, type, created_at')
+          .eq('conversation_id', id)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+      )
+    )
+
+    for (const result of fallback) {
+      if (result.error) {
+        console.error('[conversations] latest message fallback error:', result.error.message)
+        continue
+      }
+      if (result.data) lastByConversation.set(result.data.conversation_id, result.data)
+    }
+  }
+
+  return { messages, lastByConversation }
+}
+
 // ─── GET /api/conversations ───────────────────────────────────────────────────
 // ?view=kanban → usa get_kanban_conversations con soporte de ?date_from=ISO
 router.get('/', async (req, res) => {
@@ -86,6 +168,28 @@ router.get('/', async (req, res) => {
     return res.json(rows)
   }
 
+  const { data: rpcRows, error: rpcError } = await supabase.rpc('get_conversation_list', { p_tenant_id: tenantId })
+  if (!rpcError && Array.isArray(rpcRows)) {
+    const contactIds = [...new Set(rpcRows.map((row: any) => row.contact_id).filter(Boolean))]
+    const latestSaleByContact = await fetchLatestSaleByContact(tenantId, contactIds)
+    return res.json(rpcRows.map((row: any) => ({
+      id: row.id,
+      status: row.status,
+      campaign_id: row.campaign_id,
+      created_at: row.created_at,
+      contact_id: row.contact_id,
+      contact_phone: row.contact_phone ?? '',
+      contact_name: row.contact_name ?? null,
+      last_message: previewStoredContent(row.last_message),
+      last_direction: row.last_direction ?? null,
+      last_message_at: row.last_message_at ?? row.created_at,
+      unread_count: Number(row.unread_count ?? 0),
+      has_confirmed_sale: latestSaleByContact.has(row.contact_id),
+      sale_amount: latestSaleByContact.get(row.contact_id) ?? null,
+    })))
+  }
+  if (rpcError) console.error('[conversations] get_conversation_list fallback:', rpcError.message)
+
   const { data: conversations, error } = await supabase
     .from('conversations')
     .select('id, status, campaign_id, created_at, last_read_at, contact_id, contacts!inner(id, phone, name), campaigns(name)')
@@ -95,27 +199,14 @@ router.get('/', async (req, res) => {
   if (error) { res.status(500).json({ error: error.message }); return }
 
   const conversationIds = (conversations ?? []).map((row: any) => row.id)
-  const { data: messages } = conversationIds.length
-    ? await supabase
-        .from('messages')
-        .select('conversation_id, direction, content, type, created_at')
-        .in('conversation_id', conversationIds)
-        .order('created_at', { ascending: false })
-        .limit(1000)
-    : { data: [] as any[] }
-
-  const lastByConversation = new Map<string, any>()
+  const contactIds = [...new Set((conversations ?? []).map((row: any) => row.contact_id).filter(Boolean))]
+  const { messages, lastByConversation } = await fetchLatestMessagesByConversation(conversationIds)
   const unreadByConversation = new Map<string, number>()
-
-  for (const message of messages ?? []) {
-    if (!lastByConversation.has(message.conversation_id)) {
-      lastByConversation.set(message.conversation_id, message)
-    }
-  }
+  const latestSaleByContact = await fetchLatestSaleByContact(tenantId, contactIds)
 
   for (const row of conversations ?? []) {
     const lastReadAt = row.last_read_at ? new Date(row.last_read_at).getTime() : 0
-    const unread = (messages ?? []).filter((message: any) =>
+    const unread = messages.filter((message: any) =>
       message.conversation_id === row.id &&
       message.direction === 'inbound' &&
       new Date(message.created_at).getTime() > lastReadAt
@@ -138,6 +229,8 @@ router.get('/', async (req, res) => {
       last_direction: last?.direction ?? null,
       last_message_at: last?.created_at ?? row.created_at,
       unread_count: unreadByConversation.get(row.id) ?? 0,
+      has_confirmed_sale: latestSaleByContact.has(row.contact_id),
+      sale_amount: latestSaleByContact.get(row.contact_id) ?? null,
     }
   }).sort((a, b) =>
     new Date(b.last_message_at ?? b.created_at).getTime() -

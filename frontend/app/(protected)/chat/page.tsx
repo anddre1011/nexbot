@@ -17,6 +17,8 @@ interface Conversation {
   last_message_at: string | null
   unread_count:    number
   campaign_id:     string | null
+  has_confirmed_sale?: boolean
+  sale_amount?:     number | null
 }
 
 interface Message {
@@ -73,7 +75,12 @@ const STATUS_COLORS: Record<string, string> = {
   human:  'bg-sky-500/20 text-sky-300',
   open:   'bg-emerald-500/20 text-emerald-300',
   closed: 'bg-gray-500/20 text-gray-400',
+  converted: 'bg-amber-500/20 text-amber-300',
   disqualified: 'bg-red-500/20 text-red-300',
+}
+
+function isConvertedConversation(conv: Conversation) {
+  return !!conv.has_confirmed_sale || conv.status === 'converted' || conv.status === 'closed'
 }
 
 function renderMessageContent(msg: Message) {
@@ -341,7 +348,7 @@ export default function ChatPage() {
       (tab === 'unassigned' && c.status === 'bot')
 
     const matchKanban = filterKanban === 'all' || c.status === filterKanban
-    const matchConverted = !filterConverted || c.status === 'closed'
+    const matchConverted = !filterConverted || isConvertedConversation(c)
 
     return matchSearch && matchTab && matchKanban && matchConverted
   })
@@ -446,20 +453,32 @@ export default function ChatPage() {
               Sin conversaciones
             </li>
           )}
-          {filtered.map((conv) => (
+          {filtered.map((conv) => {
+            const converted = isConvertedConversation(conv)
+            return (
             <li key={conv.id}>
               <button
                 onClick={() => setSelectedId(conv.id)}
-                className={`group relative mx-2 my-1 flex w-[calc(100%-1rem)] items-start gap-3 rounded-xl border px-3 py-3 text-left transition-all hover:-translate-y-0.5 hover:bg-white/5 ${
+                className={`group relative mx-2 my-1 flex w-[calc(100%-1rem)] items-start gap-3 rounded-xl border px-3 py-3 text-left transition-all hover:-translate-y-0.5 ${
                   selectedId === conv.id
-                    ? 'border-emerald-400/30 bg-emerald-500/10 shadow-[0_0_22px_rgba(16,185,129,0.16)]'
-                    : 'border-transparent'
+                    ? converted
+                      ? 'border-amber-300/45 bg-amber-500/15 shadow-[0_0_24px_rgba(245,158,11,0.18)]'
+                      : 'border-emerald-400/30 bg-emerald-500/10 shadow-[0_0_22px_rgba(16,185,129,0.16)]'
+                    : converted
+                      ? 'border-amber-400/20 bg-amber-500/[0.07] hover:bg-amber-500/10'
+                      : 'border-transparent hover:bg-white/5'
                 }`}
               >
                 {/* avatar */}
                 <div className="relative shrink-0">
-                  <div className={`flex h-10 w-10 items-center justify-center rounded-full bg-emerald-600 text-xs font-bold text-white transition-shadow ${
-                    selectedId === conv.id ? 'shadow-[0_0_18px_rgba(16,185,129,0.55)]' : 'group-hover:shadow-[0_0_14px_rgba(16,185,129,0.35)]'
+                  <div className={`flex h-10 w-10 items-center justify-center rounded-full text-xs font-bold text-white transition-shadow ${
+                    converted
+                      ? 'bg-amber-500 shadow-[0_0_18px_rgba(245,158,11,0.35)]'
+                      : 'bg-emerald-600'
+                  } ${
+                    selectedId === conv.id
+                      ? converted ? 'shadow-[0_0_18px_rgba(245,158,11,0.55)]' : 'shadow-[0_0_18px_rgba(16,185,129,0.55)]'
+                      : converted ? 'group-hover:shadow-[0_0_14px_rgba(245,158,11,0.35)]' : 'group-hover:shadow-[0_0_14px_rgba(16,185,129,0.35)]'
                   }`}>
                     {initials(conv.contact_name, conv.contact_phone)}
                   </div>
@@ -471,9 +490,16 @@ export default function ChatPage() {
                 {/* info */}
                 <div className="min-w-0 flex-1">
                   <div className="flex items-baseline justify-between gap-1">
-                    <span className="truncate text-sm font-medium text-gray-100">
-                      {conv.contact_name ?? conv.contact_phone}
-                    </span>
+                    <div className="min-w-0 flex items-center gap-1.5">
+                      <span className="truncate text-sm font-medium text-gray-100">
+                        {conv.contact_name ?? conv.contact_phone}
+                      </span>
+                      {converted && (
+                        <span className="shrink-0 rounded-full border border-amber-400/25 bg-amber-400/10 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-200">
+                          Compró
+                        </span>
+                      )}
+                    </div>
                     <span className="shrink-0 text-[10px] text-gray-500">
                       {fmtTime(conv.last_message_at)}
                     </span>
@@ -494,7 +520,7 @@ export default function ChatPage() {
                 </div>
               </button>
             </li>
-          ))}
+          )})}
         </ul>
       </aside>
 
