@@ -10,7 +10,16 @@ interface Overview {
   conversations_total: number; ia_attending: number; conversion_rate: string
   product_value: number; sales_count: number; clients: number; total_executions: number
 }
-interface Campaign { id: string; name: string; meta_ad_id: string | null; sales_count: number; total_revenue: number }
+interface Campaign {
+  id: string
+  name: string
+  meta_ad_id: string | null
+  leads_count: number
+  sales_count: number
+  total_revenue: number
+  conversion_rate: number
+  has_sales: boolean
+}
 interface LeadByCampaign { name: string; leads: number; conversions: number; rate: string; revenue: number }
 interface TopProduct { name: string; count: number; revenue: number }
 interface ContactEvolution { date: string; count: number }
@@ -139,6 +148,9 @@ export default function DashboardPage() {
     ? allCampaignOptions
     : campaigns.map((c) => ({ id: c.id, name: c.name }))
   const activeFilterCount = productFilters.length + campaignFilters.length + (confirmedOnly ? 1 : 0) + (fromDate || toDate ? 1 : 0)
+  const campaignRevenue = campaigns.reduce((sum, campaign) => sum + campaign.total_revenue, 0)
+  const campaignsWithSales = campaigns.filter((campaign) => campaign.sales_count > 0).length
+  const campaignsWithoutSales = campaigns.filter((campaign) => campaign.sales_count === 0).length
   const L = loading
 
   return (
@@ -382,9 +394,12 @@ export default function DashboardPage() {
         </div>
 
         {/* Bottom stats */}
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
           {[
             { label: 'Campañas', value: campaigns.length, icon: '📣' },
+            { label: 'Con venta', value: campaignsWithSales, icon: 'BOB' },
+            { label: 'Sin venta', value: campaignsWithoutSales, icon: '0' },
+            { label: 'Ingresos campanas', value: `BOB ${campaignRevenue.toFixed(0)}`, icon: '$' },
             { label: 'Ejecuciones Totales', value: overview?.total_executions ?? 0, icon: '⚡' },
             { label: 'Actividad', value: contactsEvo.length > 0 ? `${contactsEvo[contactsEvo.length - 1]?.count ?? 0} hoy` : '–', icon: '📊' },
           ].map(s => (
@@ -434,8 +449,11 @@ export default function DashboardPage() {
                   className="text-left text-xs font-semibold uppercase tracking-widest text-gray-600">
                   <th className="px-6 py-3">Campaña</th>
                   <th className="px-6 py-3">Meta Ad ID</th>
+                  <th className="px-6 py-3 text-right">Leads</th>
                   <th className="px-6 py-3 text-right">Ventas</th>
+                  <th className="px-6 py-3 text-right">Conv.</th>
                   <th className="px-6 py-3 text-right">Total</th>
+                  <th className="px-6 py-3 text-right">Estado</th>
                 </tr>
               </thead>
               <tbody>
@@ -443,8 +461,15 @@ export default function DashboardPage() {
                   <tr key={c.id} style={{ borderTop: '1px solid rgba(255,255,255,0.04)', background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)' }}>
                     <td className="px-6 py-3 font-medium text-gray-200">{c.name}</td>
                     <td className="px-6 py-3 font-mono text-xs text-gray-500">{c.meta_ad_id ?? '–'}</td>
+                    <td className="px-6 py-3 text-right text-gray-300">{c.leads_count}</td>
                     <td className="px-6 py-3 text-right text-gray-300">{c.sales_count}</td>
-                    <td className="px-6 py-3 text-right font-bold text-emerald-400">${c.total_revenue.toFixed(2)}</td>
+                    <td className="px-6 py-3 text-right text-amber-300">{c.conversion_rate.toFixed(1)}%</td>
+                    <td className="px-6 py-3 text-right font-bold text-emerald-400">BOB {c.total_revenue.toFixed(2)}</td>
+                    <td className="px-6 py-3 text-right">
+                      <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${c.has_sales ? 'bg-emerald-500/15 text-emerald-300' : 'bg-red-500/10 text-red-300'}`}>
+                        {c.has_sales ? 'Vendio' : 'Sin venta'}
+                      </span>
+                    </td>
                   </tr>
                 ))}
               </tbody>

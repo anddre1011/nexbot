@@ -115,7 +115,16 @@ router.get('/campaigns', async (req, res) => {
   if (listParam(req.query.status).length) salesQuery = applyListFilter(salesQuery, 'status', req.query.status)
   else salesQuery = salesQuery.eq('status', 'confirmed')
 
-  const { data: sales } = await salesQuery
+  let convQuery = supabase
+    .from('conversations')
+    .select('campaign_id, created_at')
+    .eq('tenant_id', tenantId)
+    .not('campaign_id', 'is', null)
+  if (req.query.from) convQuery = convQuery.gte('created_at', String(req.query.from))
+  if (req.query.to) convQuery = convQuery.lte('created_at', String(req.query.to))
+  convQuery = applyListFilter(convQuery, 'campaign_id', req.query.campaign_id)
+
+  const [{ data: sales }, { data: convs }] = await Promise.all([salesQuery, convQuery])
 
   // Agrupar en JS para evitar N+1 queries
   const salesByCampaign = (sales ?? []).reduce<Record<string, { count: number; revenue: number }>>(
@@ -129,13 +138,21 @@ router.get('/campaigns', async (req, res) => {
     {}
   )
 
+  const leadsByCampaign = (convs ?? []).reduce<Record<string, number>>((acc, c) => {
+    if (c.campaign_id) acc[c.campaign_id] = (acc[c.campaign_id] ?? 0) + 1
+    return acc
+  }, {})
+
   const result = (campaigns ?? []).map((c) => ({
     id:           c.id,
     name:         c.name,
     meta_ad_id:   c.meta_ad_id,
     created_at:   c.created_at,
+    leads_count:  leadsByCampaign[c.id] ?? 0,
     sales_count:  salesByCampaign[c.id]?.count   ?? 0,
     total_revenue: salesByCampaign[c.id]?.revenue ?? 0,
+    conversion_rate: leadsByCampaign[c.id] ? Math.round(((salesByCampaign[c.id]?.count ?? 0) / leadsByCampaign[c.id]) * 1000) / 10 : 0,
+    has_sales: (salesByCampaign[c.id]?.count ?? 0) > 0,
   }))
 
   res.json(result)

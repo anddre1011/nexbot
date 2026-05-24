@@ -27,17 +27,6 @@ function previewMessage(message: any) {
   return message.content ?? null
 }
 
-function previewStoredContent(content: string | null) {
-  if (!content) return null
-  if (/^https?:\/\//i.test(content)) {
-    if (/\.(png|jpe?g|webp|gif)(\?|$)/i.test(content)) return 'Imagen'
-    if (/\.(mp4|mov|webm)(\?|$)/i.test(content)) return 'Video'
-    if (/\.(mp3|ogg|wav|m4a)(\?|$)/i.test(content)) return 'Audio'
-    return 'Archivo'
-  }
-  return content
-}
-
 async function fetchLatestSaleByContact(tenantId: string, contactIds: string[]) {
   const { data: sales } = contactIds.length
     ? await supabase
@@ -57,33 +46,38 @@ async function fetchLatestSaleByContact(tenantId: string, contactIds: string[]) 
 }
 
 async function fetchLatestMessagesByConversation(conversationIds: string[]) {
-  const limit = Math.min(Math.max(conversationIds.length * 20, 1000), 5000)
-  const { data, error } = conversationIds.length
-    ? await supabase
-        .from('messages')
-        .select('conversation_id, direction, content, type, created_at')
-        .in('conversation_id', conversationIds)
-        .order('created_at', { ascending: false })
-        .limit(limit)
-    : { data: [] as any[], error: null }
-
-  const messages = data ?? []
   const lastByConversation = new Map<string, any>()
+  const messages: any[] = []
+  let hadError = false
+  let saturated = false
 
-  if (!error) {
-    for (const message of messages) {
+  for (let i = 0; i < conversationIds.length; i += 100) {
+    const chunk = conversationIds.slice(i, i + 100)
+    const limit = Math.min(Math.max(chunk.length * 20, 500), 2000)
+    const { data, error } = await supabase
+      .from('messages')
+      .select('conversation_id, direction, content, type, created_at')
+      .in('conversation_id', chunk)
+      .order('created_at', { ascending: false })
+      .limit(limit)
+
+    if (error) {
+      hadError = true
+      console.error('[conversations] latest messages batch error:', error.message)
+      continue
+    }
+
+    if ((data?.length ?? 0) >= limit) saturated = true
+
+    for (const message of data ?? []) {
+      messages.push(message)
       if (!lastByConversation.has(message.conversation_id)) {
         lastByConversation.set(message.conversation_id, message)
       }
     }
-  } else {
-    console.error('[conversations] latest messages batch error:', error.message)
   }
 
-  const shouldFallback = !!error || messages.length >= limit
-  const missingIds = shouldFallback
-    ? conversationIds.filter((id) => !lastByConversation.has(id)).slice(0, 200)
-    : []
+  const missingIds = (hadError || saturated ? conversationIds.filter((id) => !lastByConversation.has(id)) : []).slice(0, 300)
   if (missingIds.length) {
     const fallback = await Promise.all(
       missingIds.map((id) =>
@@ -167,28 +161,6 @@ router.get('/', async (req, res) => {
 
     return res.json(rows)
   }
-
-  const { data: rpcRows, error: rpcError } = await supabase.rpc('get_conversation_list', { p_tenant_id: tenantId })
-  if (!rpcError && Array.isArray(rpcRows)) {
-    const contactIds = [...new Set(rpcRows.map((row: any) => row.contact_id).filter(Boolean))]
-    const latestSaleByContact = await fetchLatestSaleByContact(tenantId, contactIds)
-    return res.json(rpcRows.map((row: any) => ({
-      id: row.id,
-      status: row.status,
-      campaign_id: row.campaign_id,
-      created_at: row.created_at,
-      contact_id: row.contact_id,
-      contact_phone: row.contact_phone ?? '',
-      contact_name: row.contact_name ?? null,
-      last_message: previewStoredContent(row.last_message),
-      last_direction: row.last_direction ?? null,
-      last_message_at: row.last_message_at ?? row.created_at,
-      unread_count: Number(row.unread_count ?? 0),
-      has_confirmed_sale: latestSaleByContact.has(row.contact_id),
-      sale_amount: latestSaleByContact.get(row.contact_id) ?? null,
-    })))
-  }
-  if (rpcError) console.error('[conversations] get_conversation_list fallback:', rpcError.message)
 
   const { data: conversations, error } = await supabase
     .from('conversations')
