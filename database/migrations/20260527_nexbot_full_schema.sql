@@ -194,6 +194,7 @@ create index if not exists idx_flow_templates_trigger
 -- To avoid breaking production flows, this migration extends that table
 -- with the template-step fields required by the master architecture.
 alter table public.flow_steps
+  alter column flow_id drop not null,
   add column if not exists flow_template_id uuid references public.flow_templates(id) on delete cascade,
   add column if not exists step_order integer,
   add column if not exists message_type text

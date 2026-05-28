@@ -16,6 +16,10 @@ import { runAgent } from '../../../ai-agent/src/agent'
 import { validateVoucher } from '../../../ai-agent/src/validator'
 import { createNotification } from '../services/notifications'
 import { DEFAULT_SYSTEM_PROMPT } from '../../../ai-agent/src/prompts'
+import { captureCtwaAttribution } from '../services/attribution'
+import { decryptSecret } from '../services/crypto.service'
+import { logger } from '../services/logger'
+import { logMetaEvent, sanitizeForLog } from '../services/meta-events'
 import type { ChatMessage } from '../../../ai-agent/src/types'
 
 const router = Router()
@@ -35,7 +39,7 @@ router.get('/webhook', (req, res) => {
 
 // ─── Mensajes entrantes ───────────────────────────────────────────────────────
 router.post('/webhook', async (req, res) => {
-  console.log('[webhook] REQ RECEIVED:', JSON.stringify(req.body, null, 2))
+  const startedAt = Date.now()
   // Meta exige 200 inmediato o reintenta
   res.sendStatus(200)
 
@@ -48,10 +52,12 @@ router.post('/webhook', async (req, res) => {
   const type          = raw.type as string
   const phoneNumberId = value?.metadata?.phone_number_id as string | undefined
 
-  // Buscar tenant por phone_number_id (multi-tenant) o fallback a TENANT_ID (single)
-  let tenantId: string | undefined
+  logger.info('[webhook] message received', { phoneNumberId, from, type })
 
-  if (phoneNumberId) {
+  // Buscar tenant por phone_number_id usando primero la configuracion Meta nueva.
+  let tenantId = await resolveTenantId(phoneNumberId)
+
+  if (phoneNumberId && !tenantId) {
     const { data } = await supabase
       .from('tenants')
       .select('id')
@@ -68,7 +74,7 @@ router.post('/webhook', async (req, res) => {
 
   // FALLBACK DE EMERGENCIA: Si no encontró por ID ni hay ENV, agarrar el único tenant activo
   if (!tenantId) {
-    console.warn(`[webhook] No tenant found for phone_number_id="${phoneNumberId}". Using fallback...`)
+    logger.warn('[webhook] tenant not found by phone_number_id. Using active fallback', { phoneNumberId })
     const { data } = await supabase
       .from('tenants')
       .select('id')
@@ -79,18 +85,72 @@ router.post('/webhook', async (req, res) => {
   }
 
   if (!tenantId) {
-    console.error(`[webhook] CRITICAL: No active tenant found in database!`)
+    logger.error('[webhook] CRITICAL: No active tenant found in database')
     return
   }
+
+  await logMetaEvent({
+    tenantId,
+    eventType: 'webhook_received',
+    direction: 'incoming',
+    endpoint: '/api/whatsapp/webhook',
+    httpMethod: 'POST',
+    statusCode: 200,
+    requestPayload: sanitizeForLog(req.body),
+    durationMs: Date.now() - startedAt,
+  })
 
   try {
     await processMessage({ from, type, raw, tenantId })
   } catch (err) {
-    console.error('[webhook] unhandled error:', err)
+    logger.error('[webhook] unhandled error', err, { tenantId, from, type })
+    await logMetaEvent({
+      tenantId,
+      eventType: 'webhook_processing_error',
+      direction: 'incoming',
+      endpoint: '/api/whatsapp/webhook',
+      httpMethod: 'POST',
+      statusCode: 500,
+      requestPayload: { from, type, phoneNumberId },
+      durationMs: Date.now() - startedAt,
+      isError: true,
+      errorMessage: err instanceof Error ? err.message : String(err),
+    })
   }
 })
 
 // ─── Pipeline principal ───────────────────────────────────────────────────────
+async function resolveTenantId(phoneNumberId?: string): Promise<string | undefined> {
+  if (!phoneNumberId) return undefined
+
+  const { data: metaSettings, error: metaError } = await supabase
+    .from('tenant_meta_settings')
+    .select('tenant_id')
+    .eq('phone_number_id', phoneNumberId)
+    .eq('is_active', true)
+    .limit(1)
+    .maybeSingle()
+
+  if (!metaError && metaSettings?.tenant_id) {
+    logger.info('[webhook] tenant lookup meta settings', { phoneNumberId, tenantId: metaSettings.tenant_id })
+    return metaSettings.tenant_id
+  }
+
+  if (metaError && metaError.code !== 'PGRST116') {
+    logger.warn('[webhook] tenant_meta_settings lookup skipped', { reason: metaError.message })
+  }
+
+  const { data } = await supabase
+    .from('tenants')
+    .select('id')
+    .eq('phone_number_id', phoneNumberId)
+    .eq('active', true)
+    .maybeSingle()
+
+  logger.info('[webhook] tenant lookup legacy table', { phoneNumberId, tenantId: data?.id ?? 'NOT FOUND' })
+  return data?.id
+}
+
 async function processMessage(params: {
   from: string
   type: string
@@ -108,6 +168,7 @@ async function processMessage(params: {
 
   // 1. Upsert contacto
   const contact = await upsertContact(from, tenantId)
+  await captureCtwaAttribution(contact.id, raw)
 
   // 2. Extraer campaña del referral de Meta (solo presente en primer mensaje del click)
   const { campaignId, metaAdId } = await resolveCampaign(raw, tenantId)
@@ -955,7 +1016,36 @@ async function getTenant(tenantId: string) {
     .select('name, openai_key, deepseek_key, meta_token, phone_number_id')
     .eq('id', tenantId)
     .single()
-  return data
+
+  const { data: metaSettings, error } = await supabase
+    .from('tenant_meta_settings')
+    .select('phone_number_id, whatsapp_token_encrypted')
+    .eq('tenant_id', tenantId)
+    .eq('is_active', true)
+    .maybeSingle()
+
+  if (error && error.code !== 'PGRST116') {
+    logger.warn('[tenant] meta settings lookup skipped', { tenantId, reason: error.message })
+    return data
+  }
+
+  let decryptedToken: string | null = null
+  if (metaSettings?.whatsapp_token_encrypted) {
+    try {
+      decryptedToken = decryptSecret(metaSettings.whatsapp_token_encrypted)
+    } catch (err) {
+      logger.warn('[tenant] encrypted token unavailable', {
+        tenantId,
+        reason: err instanceof Error ? err.message : String(err),
+      })
+    }
+  }
+
+  return {
+    ...data,
+    phone_number_id: metaSettings?.phone_number_id ?? (data as any)?.phone_number_id,
+    meta_token: decryptedToken ?? (data as any)?.meta_token,
+  }
 }
 
 async function saveOutbound(conversationId: string, type: string, content: string) {

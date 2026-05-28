@@ -1,6 +1,8 @@
 import { Router } from 'express'
 import { requireAuth } from '../middlewares/auth'
 import { supabase } from '../services/supabase'
+import { encryptSecret } from '../services/crypto.service'
+import { logger } from '../services/logger'
 
 const router = Router()
 
@@ -275,6 +277,40 @@ router.post('/connect-whatsapp', async (req, res) => {
       }
 
       results.push({ step: 'save_tenant', status: 'ok', detail: `Tenant ${tenant.id} actualizado` })
+
+      try {
+        let encryptedMetaToken: string | null = null
+        try {
+          encryptedMetaToken = encryptSecret(meta_token)
+        } catch (err) {
+          logger.warn('[tenant] token encryption skipped', {
+            tenantId: tenant.id,
+            reason: err instanceof Error ? err.message : String(err),
+          })
+        }
+
+        const { error: metaSettingsError } = await supabase
+          .from('tenant_meta_settings')
+          .upsert({
+            tenant_id: tenant.id,
+            waba_id: wabaId,
+            phone_number_id: cleanPhoneNumberId,
+            whatsapp_token_encrypted: encryptedMetaToken,
+            whatsapp_verify_token: webhook_verify_token?.trim() || null,
+            whatsapp_display_phone_number: whatsapp_number?.trim() ?? null,
+            whatsapp_connected_at: new Date().toISOString(),
+            whatsapp_status: 'connected',
+            is_active: true,
+          }, { onConflict: 'tenant_id' })
+
+        if (metaSettingsError) {
+          results.push({ step: 'save_meta_settings', status: 'warning', detail: metaSettingsError.message })
+        } else {
+          results.push({ step: 'save_meta_settings', status: 'ok', detail: 'Configuracion Meta guardada por tenant' })
+        }
+      } catch (err: any) {
+        results.push({ step: 'save_meta_settings', status: 'warning', detail: err.message })
+      }
 
       // Respuesta final
       const allOk = results.every(r => r.status === 'ok' || r.status === 'warning')
