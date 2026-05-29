@@ -16,7 +16,7 @@ interface Contact {
   campaign_id:     string | null
   campaign_name:   string | null
   kanban_status:   string | null
-  total_value:     number
+  total_value:     number | string | null
 }
 
 interface Campaign { id: string; name: string }
@@ -46,6 +46,11 @@ function fmtDate(iso: string | null) {
   return new Date(iso).toLocaleDateString('es', { day: '2-digit', month: 'short', year: '2-digit' })
 }
 
+function moneyValue(value: unknown) {
+  const n = Number(value ?? 0)
+  return Number.isFinite(n) ? n : 0
+}
+
 // ─── CSV helpers ──────────────────────────────────────────────────────────────
 function exportCSV(contacts: Contact[]) {
   const header = ['Nombre', 'Teléfono', 'Campaña', 'Valor (BOB)', 'Estado', 'Kanban', 'Fecha Registro']
@@ -53,7 +58,7 @@ function exportCSV(contacts: Contact[]) {
     c.name ?? '',
     c.phone,
     c.campaign_name ?? '',
-    c.total_value.toFixed(2),
+    moneyValue(c.total_value).toFixed(2),
     c.status,
     c.kanban_status ?? '',
     fmtDate(c.created_at),
@@ -102,7 +107,7 @@ export default function ContactsPage() {
   }, [])
 
   // ─── métricas ───────────────────────────────────────────────────────────────
-  const totalValue = contacts.reduce((s, c) => s + c.total_value, 0)
+  const totalValue = contacts.reduce((s, c) => s + moneyValue(c.total_value), 0)
 
   // ─── toggle AI ──────────────────────────────────────────────────────────────
   async function toggleAI(contact: Contact) {
@@ -365,7 +370,7 @@ export default function ContactsPage() {
                   </td>
 
                   <td className="px-4 py-2.5 text-right font-semibold text-emerald-400">
-                    {c.total_value > 0 ? c.total_value.toFixed(2) : <span className="text-gray-600 font-normal">0.00</span>}
+                    {moneyValue(c.total_value) > 0 ? moneyValue(c.total_value).toFixed(2) : <span className="text-gray-600 font-normal">0.00</span>}
                   </td>
 
                   <td className="px-4 py-2.5 text-xs text-gray-500">{fmtDate(c.created_at)}</td>
@@ -426,7 +431,7 @@ export default function ContactsPage() {
             <div className="flex flex-col gap-2.5 text-xs">
               <PanelRow label="Campaña"   value={selected.campaign_name ?? '–'} />
               <PanelRow label="Kanban"    value={selected.kanban_status ? (KANBAN_LABEL[selected.kanban_status] ?? selected.kanban_status) : '–'} />
-              <PanelRow label="Valor"     value={`BOB ${selected.total_value.toFixed(2)}`} highlight={selected.total_value > 0} />
+              <PanelRow label="Valor"     value={`BOB ${moneyValue(selected.total_value).toFixed(2)}`} highlight={moneyValue(selected.total_value) > 0} />
               <PanelRow label="Registro"  value={fmtDate(selected.created_at)} />
               <PanelRow label="Últ. msg"  value={fmtDate(selected.last_message_at)} />
               <div className="flex items-center justify-between">
