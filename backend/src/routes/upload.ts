@@ -26,7 +26,13 @@ const uploadMedia = multer({
   fileFilter: (_req, file, cb) => {
     const allowed = [
       'image/', 'video/', 'audio/',
+      'text/',
       'application/pdf',
+      'application/msword',
+      'application/vnd.ms-',
+      'application/vnd.openxmlformats-officedocument.',
+      'application/zip',
+      'application/x-zip-compressed',
       'application/octet-stream',
     ]
     if (allowed.some(t => file.mimetype.startsWith(t))) cb(null, true)

@@ -23,6 +23,7 @@ interface Campaign { id: string; name: string }
 
 type StatusFilter = '' | 'active' | 'blocked' | 'unsubscribed'
 type KanbanFilter = '' | 'human' | 'attending' | 'converted' | 'disqualified' | 'abandoned'
+type ViewTab = 'list' | 'cleanup'
 
 const STATUS_BADGE: Record<string, string> = {
   active:        'bg-emerald-500/15 text-emerald-400',
@@ -75,6 +76,9 @@ export default function ContactsPage() {
   const [loading,    setLoading]    = useState(true)
   const [selected,   setSelected]   = useState<Contact | null>(null)
   const [showAdd,    setShowAdd]     = useState(false)
+  const [viewTab,    setViewTab]    = useState<ViewTab>('list')
+  const [cleanupLoading, setCleanupLoading] = useState(false)
+  const [cleanupResult, setCleanupResult] = useState<string | null>(null)
 
   // ─── fetch ──────────────────────────────────────────────────────────────────
   const fetchContacts = useCallback(async () => {
@@ -118,6 +122,32 @@ export default function ContactsPage() {
     await apiFetch(`/api/contacts/${id}`, { method: 'DELETE' })
     setContacts((prev) => prev.filter((c) => c.id !== id))
     if (selected?.id === id) setSelected(null)
+  }
+
+  async function cleanupContacts() {
+    const message = 'Esto borrara chats y contactos que no compraron. Los compradores quedan guardados, pero sin historial de chat. Escribe ELIMINAR para confirmar.'
+    const confirmText = window.prompt(message)
+    if (confirmText !== 'ELIMINAR') return
+
+    setCleanupLoading(true)
+    setCleanupResult(null)
+    try {
+      const result = await apiFetch<{
+        buyers_kept: number
+        buyer_chats_deleted: number
+        contacts_deleted: number
+      }>('/api/contacts/cleanup', {
+        method: 'POST',
+        body: JSON.stringify({ confirm: 'ELIMINAR' }),
+      })
+      setCleanupResult(`Listo: ${result.contacts_deleted} contactos borrados, ${result.buyers_kept} compradores conservados y ${result.buyer_chats_deleted} chats de compradores limpiados.`)
+      setSelected(null)
+      fetchContacts()
+    } catch (err) {
+      setCleanupResult(err instanceof Error ? err.message : 'No se pudo limpiar contactos')
+    } finally {
+      setCleanupLoading(false)
+    }
   }
 
   // ─── importar CSV ────────────────────────────────────────────────────────────
@@ -164,6 +194,20 @@ export default function ContactsPage() {
             </div>
 
             <div className="flex items-center gap-2">
+              <div className="mr-2 flex rounded-lg border border-white/10 bg-white/5 p-1">
+                <button
+                  onClick={() => setViewTab('list')}
+                  className={`rounded-md px-3 py-1 text-xs font-medium ${viewTab === 'list' ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:text-white'}`}
+                >
+                  Lista
+                </button>
+                <button
+                  onClick={() => setViewTab('cleanup')}
+                  className={`rounded-md px-3 py-1 text-xs font-medium ${viewTab === 'cleanup' ? 'bg-red-600 text-white' : 'text-gray-400 hover:text-white'}`}
+                >
+                  Limpieza
+                </button>
+              </div>
               <input ref={importRef} type="file" accept=".csv" className="hidden" onChange={handleImport} />
               <button
                 onClick={() => importRef.current?.click()}
@@ -190,7 +234,7 @@ export default function ContactsPage() {
           </div>
 
           {/* ── filtros ── */}
-          <div className="mt-3 flex flex-wrap items-center gap-2">
+          <div className={`${viewTab === 'list' ? 'mt-3 flex' : 'hidden'} flex-wrap items-center gap-2`}>
             {/* buscador */}
             <div className="flex items-center gap-2 rounded-lg bg-white/5 px-3 py-1.5">
               <svg className="h-3.5 w-3.5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
@@ -238,7 +282,32 @@ export default function ContactsPage() {
         </div>
 
         {/* ── tabla ── */}
-        <div className="flex-1 overflow-auto">
+        {viewTab === 'cleanup' && (
+          <div className="flex-1 overflow-auto p-6">
+            <div className="max-w-2xl rounded-2xl border border-red-500/20 bg-red-500/[0.06] p-5">
+              <p className="text-sm font-semibold text-red-200">Eliminar contactos de prueba y limpiar chats</p>
+              <p className="mt-2 text-sm leading-relaxed text-gray-400">
+                Esta accion borra todos los contactos que no tienen ventas confirmadas. Los compradores se conservan
+                para ventas/reportes, pero se eliminan sus conversaciones y mensajes para dejar limpio el inbox.
+              </p>
+              <div className="mt-4 flex flex-wrap items-center gap-3">
+                <button
+                  onClick={cleanupContacts}
+                  disabled={cleanupLoading}
+                  className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-500 disabled:opacity-50"
+                >
+                  {cleanupLoading ? 'Limpiando...' : 'Limpiar y conservar compradores'}
+                </button>
+                <span className="text-xs text-gray-500">Requiere escribir ELIMINAR.</span>
+              </div>
+              {cleanupResult && (
+                <p className="mt-4 rounded-lg bg-black/25 px-3 py-2 text-xs text-gray-300">{cleanupResult}</p>
+              )}
+            </div>
+          </div>
+        )}
+
+        <div className={viewTab === 'list' ? 'flex-1 overflow-auto' : 'hidden'}>
           <table className="w-full text-sm">
             <thead className="sticky top-0 bg-[#141414] text-left text-xs font-medium text-gray-500">
               <tr>
