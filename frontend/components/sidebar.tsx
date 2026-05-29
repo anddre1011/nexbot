@@ -1,7 +1,9 @@
 'use client'
 
 import Link from 'next/link'
+import { useEffect, useState } from 'react'
 import { usePathname } from 'next/navigation'
+import { createClient } from '@/lib/supabase/client'
 
 const navLinks = [
   {
@@ -50,6 +52,7 @@ const navLinks = [
   },
   {
     href: '/admin', label: 'Admin',
+    adminOnly: true,
     icon: <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />,
   },
   {
@@ -60,6 +63,30 @@ const navLinks = [
 
 export default function Sidebar({ email, onCloseMobile }: { email: string; onCloseMobile?: () => void }) {
   const pathname = usePathname()
+  const [isAdmin, setIsAdmin] = useState(false)
+
+  useEffect(() => {
+    let alive = true
+
+    async function loadAdminFlag() {
+      try {
+        const supabase = createClient()
+        const { data: { user } } = await supabase.auth.getUser()
+        const { data: allUsers } = await supabase
+          .from('users')
+          .select('id')
+          .order('created_at', { ascending: true })
+          .limit(1)
+
+        if (alive) setIsAdmin(Boolean(allUsers?.[0] && allUsers[0].id === user?.id))
+      } catch {
+        if (alive) setIsAdmin(false)
+      }
+    }
+
+    loadAdminFlag()
+    return () => { alive = false }
+  }, [])
 
   return (
     <aside style={{ background: '#0d0d14', borderRight: '1px solid rgba(255,255,255,0.06)' }}
@@ -96,7 +123,7 @@ export default function Sidebar({ email, onCloseMobile }: { email: string; onClo
 
       {/* Nav */}
       <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto px-3">
-        {navLinks.map(({ href, label, icon }) => {
+        {navLinks.filter((link) => !link.adminOnly || isAdmin).map(({ href, label, icon }) => {
           const isActive = pathname === href || (href !== '/dashboard' && pathname.startsWith(href))
           return (
             <Link key={href} href={href}
