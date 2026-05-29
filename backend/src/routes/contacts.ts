@@ -15,6 +15,21 @@ async function getTenantId(userId: string): Promise<string | null> {
   return data?.id ?? null
 }
 
+async function deleteInChunks(table: string, column: string, ids: string[]) {
+  let deleted = 0
+  for (let i = 0; i < ids.length; i += 100) {
+    const chunk = ids.slice(i, i + 100)
+    const { data, error } = await supabase
+      .from(table)
+      .delete()
+      .in(column, chunk)
+      .select('id')
+    if (error) throw error
+    deleted += data?.length ?? chunk.length
+  }
+  return deleted
+}
+
 // ─── GET /api/contacts ────────────────────────────────────────────────────────
 // ?status=active|blocked|unsubscribed
 // ?campaign_id=uuid
@@ -47,6 +62,60 @@ router.get('/', async (req, res) => {
 
   if (error) { res.status(500).json({ error: (error as any)?.message ?? 'Error' }); return }
   res.json(data)
+})
+
+// POST /api/contacts/cleanup
+// Borra chats y contactos no compradores. Conserva los contactos con ventas confirmadas.
+router.post('/cleanup', async (req, res) => {
+  const tenantId = await getTenantId(res.locals.user.id)
+  if (!tenantId) { res.status(404).json({ error: 'Tenant not found' }); return }
+
+  if (req.body?.confirm !== 'ELIMINAR') {
+    res.status(400).json({ error: 'Confirmacion requerida' })
+    return
+  }
+
+  try {
+    const { data: sales, error: salesErr } = await supabase
+      .from('sales')
+      .select('contact_id')
+      .eq('tenant_id', tenantId)
+      .eq('status', 'confirmed')
+
+    if (salesErr) throw salesErr
+
+    const buyerIds = new Set((sales ?? []).map((s: any) => s.contact_id).filter(Boolean))
+
+    const { data: contacts, error: contactsErr } = await supabase
+      .from('contacts')
+      .select('id')
+      .eq('tenant_id', tenantId)
+
+    if (contactsErr) throw contactsErr
+
+    const allContactIds = (contacts ?? []).map((c: any) => c.id)
+    const nonBuyerIds = allContactIds.filter((id: string) => !buyerIds.has(id))
+    const buyerContactIds = allContactIds.filter((id: string) => buyerIds.has(id))
+
+    let buyerConversationsDeleted = 0
+    if (buyerContactIds.length) {
+      buyerConversationsDeleted = await deleteInChunks('conversations', 'contact_id', buyerContactIds)
+    }
+
+    let nonBuyerContactsDeleted = 0
+    if (nonBuyerIds.length) {
+      nonBuyerContactsDeleted = await deleteInChunks('contacts', 'id', nonBuyerIds)
+    }
+
+    res.json({
+      ok: true,
+      buyers_kept: buyerContactIds.length,
+      buyer_chats_deleted: buyerConversationsDeleted,
+      contacts_deleted: nonBuyerContactsDeleted,
+    })
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message ?? 'Cleanup failed' })
+  }
 })
 
 // ─── GET /api/contacts/:id ────────────────────────────────────────────────────

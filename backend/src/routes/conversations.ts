@@ -486,6 +486,31 @@ router.patch('/:id/status', async (req, res) => {
   const tenantId = await getTenantId(res.locals.user.id)
   if (!tenantId) { res.status(404).json({ error: 'Tenant not found' }); return }
 
+  const { data: conv } = await supabase
+    .from('conversations')
+    .select('contact_id')
+    .eq('id', req.params.id)
+    .eq('tenant_id', tenantId)
+    .single()
+
+  if (!conv) { res.status(404).json({ error: 'Conversation not found' }); return }
+
+  if (status === 'converted') {
+    const { data: sale } = await supabase
+      .from('sales')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .eq('contact_id', conv.contact_id)
+      .eq('status', 'confirmed')
+      .limit(1)
+      .maybeSingle()
+
+    if (!sale) {
+      res.status(400).json({ error: 'Solo se puede marcar como convertido cuando existe una venta confirmada.' })
+      return
+    }
+  }
+
   const updates: Record<string, unknown> = { status }
   if (status === 'bot' || status === 'open') updates.ai_enabled = true
   if (['human', 'closed', 'attending', 'converted', 'disqualified', 'abandoned'].includes(status)) updates.ai_enabled = false
@@ -500,21 +525,12 @@ router.patch('/:id/status', async (req, res) => {
 
   if (error) { res.status(500).json({ error: error.message }); return }
 
-  if (['open', 'human', 'attending', 'converted', 'disqualified', 'abandoned'].includes(status)) {
-    const { data: conv } = await supabase
-      .from('conversations')
-      .select('contact_id')
-      .eq('id', req.params.id)
+  if (['open', 'human', 'attending', 'converted', 'disqualified', 'abandoned'].includes(status) && conv?.contact_id) {
+    await supabase
+      .from('contacts')
+      .update({ kanban_stage: status })
+      .eq('id', conv.contact_id)
       .eq('tenant_id', tenantId)
-      .single()
-
-    if (conv?.contact_id) {
-      await supabase
-        .from('contacts')
-        .update({ kanban_stage: status })
-        .eq('id', conv.contact_id)
-        .eq('tenant_id', tenantId)
-    }
   }
 
   res.json(data)

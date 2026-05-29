@@ -80,7 +80,7 @@ const STATUS_COLORS: Record<string, string> = {
 }
 
 function isConvertedConversation(conv: Conversation) {
-  return !!conv.has_confirmed_sale || conv.status === 'converted' || conv.status === 'closed'
+  return !!conv.has_confirmed_sale || conv.status === 'converted'
 }
 
 function renderMessageContent(msg: Message) {
@@ -122,6 +122,7 @@ export default function ChatPage() {
   const [filterConverted, setFilterConverted] = useState(false)
   const [recording,       setRecording]       = useState(false)
   const [showFlowPicker,  setShowFlowPicker]  = useState(false)
+  const [showComposerFlowPicker, setShowComposerFlowPicker] = useState(false)
   const [flows,           setFlows]           = useState<{ id: string; name: string; active: boolean }[]>([])
   const bottomRef        = useRef<HTMLDivElement>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
@@ -305,6 +306,7 @@ export default function ChatPage() {
         body: JSON.stringify({ flow_id: flowId }),
       })
       setShowFlowPicker(false)
+      setShowComposerFlowPicker(false)
       fetchConversations()
     } catch (err) {
       console.error('[chat] trigger-flow:', err)
@@ -644,6 +646,33 @@ export default function ChatPage() {
                   e.currentTarget.value = ''
                 }}
               />
+              <div className="relative">
+                <button
+                  onClick={() => setShowComposerFlowPicker(v => !v)}
+                  title="Enviar flujo"
+                  disabled={!selectedId}
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-violet-500/10 text-violet-300 transition hover:bg-violet-500/20 hover:text-white disabled:opacity-40"
+                >
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                  </svg>
+                </button>
+                {showComposerFlowPicker && (
+                  <div style={{ background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.08)' }}
+                    className="absolute bottom-full mb-2 right-0 w-56 rounded-xl overflow-hidden shadow-xl z-20">
+                    {flows.length === 0 ? (
+                      <p className="px-3 py-3 text-xs text-gray-600 text-center">Sin flujos disponibles</p>
+                    ) : flows.map(f => (
+                      <button key={f.id}
+                        onClick={() => handleTriggerFlow(f.id)}
+                        className="w-full flex items-center gap-2 px-3 py-2.5 text-left text-xs text-gray-300 hover:bg-white/5 transition-colors">
+                        <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${f.active ? 'bg-emerald-400' : 'bg-gray-600'}`} />
+                        {f.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
               <button
                 onClick={() => fileInputRef.current?.click()}
                 title="Enviar archivo"
