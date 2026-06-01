@@ -13,7 +13,7 @@ type ModelId   = 'gpt-4o' | 'gpt-4o-mini' | 'gpt-4.1' | 'gpt-3.5-turbo' | 'deeps
 
 interface WelcomeItem       { id: string; type: 'text' | 'image' | 'video'; content: string }
 interface InactivityMsg     { id: string; delay: number; unit: 'minutes' | 'hours'; message: string }
-interface MediaItem         { id: string; name: string; variable: string | null }
+interface MediaItem         { id: string; name: string; variable: string | null; type?: string; url?: string }
 
 interface Flow {
   id:                    string
@@ -84,7 +84,7 @@ function fmtDate(iso: string) {
 }
 
 const EMPTY: FormState = {
-  name: '', type: 'ai', model: 'gpt-4o', system_prompt: DEFAULT_PROMPT,
+  name: '', type: 'conversational_ai', model: 'gpt-4o', system_prompt: DEFAULT_PROMPT,
   handoff_agent_name: '', welcome_items: [], inactivity_messages: [],
   conversion_enabled: false, conversion_message: '', inactivity_delay: '60', inactivity_unit: 'minutes',
 }
@@ -126,7 +126,7 @@ export default function ConstructorIAPage() {
     <div className="relative flex h-[100dvh] overflow-hidden bg-[#0a0a0f]">
 
       {/* ── lista principal ── */}
-      <div className={`flex min-w-0 flex-1 flex-col transition-all duration-300 ${panelOpen ? 'lg:mr-[500px]' : ''}`}>
+      <div className={`flex min-w-0 flex-1 flex-col transition-all duration-300 ${panelOpen ? 'lg:mr-[620px]' : ''}`}>
 
         {/* ── Top bar ── */}
         <div style={{ background: '#0d0d14', borderBottom: '1px solid rgba(255,255,255,0.05)' }}
@@ -291,6 +291,7 @@ export default function ConstructorIAPage() {
           medias={medias}
           onClose={() => setPanel('closed')}
           onSaved={() => { setPanel('closed'); fetchFlows() }}
+          onMediaCreated={(media) => setMedias((prev) => [media, ...prev.filter((m) => m.id !== media.id)])}
         />
       )}
     </div>
@@ -298,11 +299,12 @@ export default function ConstructorIAPage() {
 }
 
 // ─── panel lateral ────────────────────────────────────────────────────────────
-function FlowPanel({ flow, medias, onClose, onSaved }: {
+function FlowPanel({ flow, medias, onClose, onSaved, onMediaCreated }: {
   flow:     Flow | null
   medias:   MediaItem[]
   onClose:  () => void
   onSaved:  () => void
+  onMediaCreated: (media: MediaItem) => void
 }) {
   const isEdit = !!flow
   const promptRef = useRef<HTMLTextAreaElement>(null)
@@ -321,11 +323,13 @@ function FlowPanel({ flow, medias, onClose, onSaved }: {
   } : { ...EMPTY })
   const [saving,          setSaving]          = useState(false)
   const [error,           setError]           = useState('')
+  const [saveStatus,      setSaveStatus]      = useState('')
+  const [saved,           setSaved]           = useState(false)
   const [generating,      setGenerating]      = useState(false)
   const [showMediaPicker,   setShowMediaPicker]   = useState(false)
   const [promptExpanded,    setPromptExpanded]    = useState(false)
   const [uploadingMedia,    setUploadingMedia]    = useState(false)
-  const [pendingMedia,      setPendingMedia]      = useState<{url: string; varName: string} | null>(null)
+  const [pendingMedia,      setPendingMedia]      = useState<{url: string; varName: string; mediaType: 'image' | 'video' | 'audio'} | null>(null)
   const [uploadKey,         setUploadKey]         = useState(0)
 
   // ─── Estado de pasos, conversiones e inactividad ───────────────────────────
@@ -382,10 +386,10 @@ function FlowPanel({ flow, medias, onClose, onSaved }: {
 
   async function handleSave() {
     if (!form.name.trim()) { setError('El nombre es obligatorio'); return }
-    setSaving(true); setError('')
+    setSaving(true); setSaved(false); setError(''); setSaveStatus('Guardando flujo...')
     const body = {
       name:               form.name.trim(),
-      type:               form.type,
+      type:               flowSteps.length > 0 ? 'conversational_ai' : form.type,
       model:              form.model,
       system_prompt:      form.system_prompt || null,
       handoff_agent_name: form.handoff_agent_name || null,
@@ -404,13 +408,17 @@ function FlowPanel({ flow, medias, onClose, onSaved }: {
         flowId = created.id
       }
       // Guardar steps, conversions y reglas de inactividad en paralelo
+      setSaveStatus('Guardando mensajes, conversiones e inactividad...')
       await Promise.all([
         apiFetch(`/api/flows/${flowId}/steps`,            { method: 'PUT', body: JSON.stringify(flowSteps) }),
         apiFetch(`/api/flows/${flowId}/conversions`,       { method: 'PUT', body: JSON.stringify(conversions) }),
         apiFetch(`/api/flows/${flowId}/inactivity-rules`, { method: 'PUT', body: JSON.stringify(inactRules) }),
       ])
-      onSaved()
+      setSaved(true)
+      setSaveStatus('Guardado correctamente')
+      setTimeout(onSaved, 650)
     } catch (err) {
+      setSaveStatus('')
       setError(err instanceof Error ? err.message : 'Error al guardar')
     } finally { setSaving(false) }
   }
@@ -422,7 +430,7 @@ function FlowPanel({ flow, medias, onClose, onSaved }: {
 
       {/* Panel */}
       <div style={{ background: '#0d0d14', borderLeft: '1px solid rgba(255,255,255,0.07)', boxShadow: '-20px 0 60px rgba(0,0,0,0.5)' }}
-        className="fixed inset-x-0 bottom-0 top-0 z-40 flex h-full w-full flex-col sm:inset-y-0 sm:left-auto sm:right-0 sm:w-[500px]">
+        className="fixed inset-x-0 bottom-0 top-0 z-40 flex h-full w-full flex-col sm:inset-y-0 sm:left-auto sm:right-0 sm:w-[620px]">
 
         {/* Header */}
         <div style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}
@@ -511,7 +519,7 @@ function FlowPanel({ flow, medias, onClose, onSaved }: {
               ))}
 
               {/* Media picker con upload */}
-              <div className="relative">
+              <div className="w-full sm:w-auto">
                 <button onClick={() => setShowMediaPicker(p => !p)}
                   style={{ background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.25)' }}
                   className="rounded-lg px-2 py-0.5 text-[10px] font-bold text-amber-300 hover:bg-amber-500/20 transition-colors">
@@ -520,7 +528,7 @@ function FlowPanel({ flow, medias, onClose, onSaved }: {
 
                 {showMediaPicker && (
                   <div style={{ background: '#1a1a24', border: '1px solid rgba(255,255,255,0.1)', boxShadow: '0 12px 40px rgba(0,0,0,0.8)' }}
-                    className="absolute right-0 top-7 z-20 w-[min(16rem,calc(100vw-2rem))] rounded-xl p-2 max-h-64 overflow-y-auto">
+                    className="relative z-20 mt-2 max-h-80 w-full overflow-y-auto rounded-xl p-2 sm:w-96">
 
                     {/* Upload + rename antes de insertar */}
                     {pendingMedia ? (
@@ -536,17 +544,18 @@ function FlowPanel({ flow, medias, onClose, onSaved }: {
                           <button onClick={async () => {
                             const v = `{{media:${pendingMedia.varName}}}`
                             // Añadir al final del prompt (evita problema de cursor fuera de foco)
-                            set('system_prompt', (form.system_prompt ?? '') + '\n' + v)
-                            
-                            // Determinar tipo basado en extensión simple de la URL
-                            const isVid = pendingMedia.url.match(/\.(mp4|mov|avi|wmv)$/i)
-                            const isAud = pendingMedia.url.match(/\.(mp3|ogg|wav)$/i)
-                            const mediaType = isVid ? 'video' : isAud ? 'audio' : 'image'
-
-                            // Guardar en tabla media para que aparezca en Biblioteca
-                            apiFetch('/api/media', { method: 'POST', body: JSON.stringify({ name: pendingMedia.varName, type: mediaType, url: pendingMedia.url, variable: v }) }).catch(() => {})
-                            setPendingMedia(null)
-                            setShowMediaPicker(false)
+                            try {
+                              const savedMedia = await apiFetch<MediaItem>('/api/media', {
+                                method: 'POST',
+                                body: JSON.stringify({ name: pendingMedia.varName, type: pendingMedia.mediaType, url: pendingMedia.url, variable: v }),
+                              })
+                              onMediaCreated(savedMedia)
+                              set('system_prompt', (form.system_prompt ?? '') + '\n' + v)
+                              setPendingMedia(null)
+                              setShowMediaPicker(false)
+                            } catch (err) {
+                              alert('Error al guardar media: ' + (err instanceof Error ? err.message : 'desconocido'))
+                            }
                           }}
                           style={{ background: 'linear-gradient(135deg,#7c3aed,#2563eb)' }}
                           className="flex-1 rounded-lg py-1.5 text-[10px] font-bold text-white hover:opacity-90 transition-all">
@@ -570,8 +579,12 @@ function FlowPanel({ flow, medias, onClose, onSaved }: {
                             setUploadingMedia(true)
                             try {
                               const uploadFile = await optimizeUploadFile(file)
-                              const ext = uploadFile.type.split('/')[0]
-                              const short = `${ext}_${Date.now().toString().slice(-4)}`
+                              const mediaType = uploadFile.type.startsWith('video/')
+                                ? 'video'
+                                : uploadFile.type.startsWith('audio/')
+                                  ? 'audio'
+                                  : 'image'
+                              const short = `${mediaType}_${Date.now().toString().slice(-4)}`
                               // Solo subir a storage — no guardar en DB todavía (se guarda al confirmar nombre)
                               const { createClient } = await import('@/lib/supabase/client')
                               const { data: { session } } = await createClient().auth.getSession()
@@ -582,7 +595,7 @@ function FlowPanel({ flow, medias, onClose, onSaved }: {
                               })
                               if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.error ?? `Error ${res.status}`) }
                               const { url } = await res.json()
-                              setPendingMedia({ url, varName: short })
+                              setPendingMedia({ url, varName: short, mediaType })
                             } catch (err) { alert('Error al subir: ' + (err instanceof Error ? err.message : 'desconocido')) }
                             finally { setUploadingMedia(false); setUploadKey(k => k + 1) }
                           }} />
@@ -669,17 +682,15 @@ function FlowPanel({ flow, medias, onClose, onSaved }: {
           {/* Handoff */}
           <InputField label="Atendiente humano (handoff)" value={form.handoff_agent_name} onChange={(v) => set('handoff_agent_name', v)} placeholder="Nombre del agente" />
 
-          {/* ═══ FLUJO INICIAL (solo modo conversacional) ═══ */}
-          {form.type === 'conversational_ai' && (
-            <div style={{ background: 'rgba(124,58,237,0.04)', border: '1px solid rgba(124,58,237,0.20)', boxShadow: '0 0 28px rgba(124,58,237,0.08)' }}
+          {/* ═══ FLUJO INICIAL ═══ */}
+          <div style={{ background: 'rgba(124,58,237,0.04)', border: '1px solid rgba(124,58,237,0.20)', boxShadow: '0 0 28px rgba(124,58,237,0.08)' }}
               className="rounded-xl p-4 transition-all hover:border-violet-400/40 hover:shadow-[0_0_30px_rgba(124,58,237,0.16)]">
               <FlowStepsBuilder
                 steps={flowSteps}
                 onChange={setFlowSteps}
                 onInsertVar={(v) => insertAtCursor(v)}
               />
-            </div>
-          )}
+          </div>
 
           {/* ═══ FLUJOS DE CONVERSIÓN ═══ */}
           <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(16,185,129,0.16)', boxShadow: '0 0 24px rgba(16,185,129,0.06)' }}
@@ -708,6 +719,12 @@ function FlowPanel({ flow, medias, onClose, onSaved }: {
             {error}
           </div>
         )}
+        {saveStatus && !error && (
+          <div style={{ background: saved ? 'rgba(16,185,129,0.12)' : 'rgba(124,58,237,0.12)', border: saved ? '1px solid rgba(16,185,129,0.25)' : '1px solid rgba(124,58,237,0.25)' }}
+            className={`mx-4 mb-2 rounded-xl px-4 py-2.5 text-xs sm:mx-6 ${saved ? 'text-emerald-300' : 'text-violet-300'}`}>
+            {saveStatus}
+          </div>
+        )}
         <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}
           className="flex gap-2 px-4 py-3 shrink-0 sm:px-6 sm:py-4">
           <button onClick={onClose}
@@ -715,10 +732,10 @@ function FlowPanel({ flow, medias, onClose, onSaved }: {
             className="flex-1 rounded-xl py-2.5 text-sm font-medium text-gray-400 hover:bg-white/5 transition-colors">
             Cancelar
           </button>
-          <button onClick={handleSave} disabled={saving}
-            style={{ background: saving ? 'rgba(124,58,237,0.4)' : 'linear-gradient(135deg, #7c3aed, #2563eb)' }}
+          <button onClick={handleSave} disabled={saving || saved}
+            style={{ background: saving || saved ? 'rgba(124,58,237,0.4)' : 'linear-gradient(135deg, #7c3aed, #2563eb)' }}
             className="flex-1 rounded-xl py-2.5 text-sm font-bold text-white hover:opacity-90 disabled:opacity-50 transition-all">
-            {saving ? 'Guardando...' : isEdit ? 'Guardar cambios' : 'Crear flujo'}
+            {saved ? 'Guardado' : saving ? 'Guardando...' : isEdit ? 'Guardar cambios' : 'Crear flujo'}
           </button>
         </div>
       </div>
