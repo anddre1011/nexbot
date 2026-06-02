@@ -23,6 +23,11 @@ import { logMetaEvent, sanitizeForLog } from '../services/meta-events'
 import type { ChatMessage } from '../../../ai-agent/src/types'
 
 const router = Router()
+const AGENT_DISABLED_TAG = 'agent_disabled'
+
+function isFlowAgentEnabled(flow?: { tags?: string[] | null } | null) {
+  return !flow?.tags?.includes(AGENT_DISABLED_TAG)
+}
 
 // ─── Verificación de webhook Meta ────────────────────────────────────────────
 router.get('/webhook', (req, res) => {
@@ -191,8 +196,9 @@ async function processMessage(params: {
     if (!isNewConversation) {
       console.log(`[webhook] Ad flow "${adFlow.name}" ignored because conversation already exists.`)
     } else {
+      const agentEnabled = isFlowAgentEnabled(adFlow)
       await supabase.from('conversations')
-        .update({ flow_id: adFlow.id, status: 'bot', ai_enabled: true, flow_step: 0 })
+        .update({ flow_id: adFlow.id, status: agentEnabled ? 'bot' : 'open', ai_enabled: agentEnabled, flow_step: 0 })
         .eq('id', conversation.id)
 
       await supabase.from('automation_campaigns')
@@ -241,7 +247,7 @@ async function processMessage(params: {
     .eq('id', contact.id)
 
   // 6b. Detectar palabra clave y asignar flujo correspondiente
-  type FlowInfo = { id: string; name: string; type: string; model: string; system_prompt: string | null }
+  type FlowInfo = { id: string; name: string; type: string; model: string; system_prompt: string | null; tags?: string[] | null }
   let keywordFlow: FlowInfo | null = null
   if (type === 'text' && inboundContent) {
     // Normalizar acentos: "máster" === "master", "información" === "informacion"
@@ -250,7 +256,7 @@ async function processMessage(params: {
 
     const { data: keywords } = await supabase
       .from('keywords')
-      .select('keyword, flow_id, flows(id, name, type, model, system_prompt)')
+      .select('keyword, flow_id, flows(id, name, type, model, system_prompt, tags)')
       .eq('tenant_id', tenantId)
       .eq('active', true)
 
@@ -276,7 +282,7 @@ async function processMessage(params: {
         } else {
           // Vincular flujo nuevo a la conversación y reactivar la IA
           await supabase.from('conversations')
-            .update({ flow_id: matched.flow_id, status: 'bot', ai_enabled: true })
+            .update({ flow_id: matched.flow_id, status: isFlowAgentEnabled(keywordFlow) ? 'bot' : 'open', ai_enabled: isFlowAgentEnabled(keywordFlow) })
             .eq('id', conversation.id)
           
           console.log(`[webhook] Keyword "${matched.keyword}" → executing flow "${(matched.flows as any)?.name}"`)
@@ -310,12 +316,13 @@ async function processMessage(params: {
 
   // 7a. Si es conversación nueva y hay flujo con welcome steps → ejecutar flujo de bienvenida
   if (isNewConversation && activeFlow && activeFlow.type === 'conversational_ai') {
+    const agentEnabled = isFlowAgentEnabled(activeFlow)
     console.log(`[webhook] New conversation — executing welcome flow "${activeFlow.name}"`)
 
     // Vincular flujo a la conversación
     await supabase
       .from('conversations')
-      .update({ flow_id: activeFlow.id, flow_step: 0 })
+      .update({ flow_id: activeFlow.id, flow_step: 0, status: agentEnabled ? 'bot' : 'open', ai_enabled: agentEnabled })
       .eq('id', conversation.id)
 
     // Ejecutar secuencia de bienvenida
@@ -334,6 +341,11 @@ async function processMessage(params: {
   }
 
   // 7b. Verificar si la IA está habilitada para esta conversación
+  if (activeFlow && !isFlowAgentEnabled(activeFlow)) {
+    console.log(`[webhook] Agent disabled for flow "${activeFlow.name}", skipping AI reply`)
+    return
+  }
+
   if (!conversation.ai_enabled) {
     console.log(`[webhook] AI disabled for conversation ${conversation.id}, skipping`)
     return // No responder — IA desactivada (contacto convertido o descalificado)
@@ -967,12 +979,13 @@ async function getAutomationFlowByAdId(tenantId: string, metaAdId: string): Prom
   type: string
   model: string
   system_prompt: string | null
+  tags?: string[] | null
   automation_campaign_id: string
   executions: number
 } | null> {
   const { data } = await supabase
     .from('automation_campaigns')
-    .select('id, executions, flows(id, name, type, model, system_prompt)')
+    .select('id, executions, flows(id, name, type, model, system_prompt, tags)')
     .eq('tenant_id', tenantId)
     .eq('active', true)
     .eq('meta_ad_source_id', metaAdId)
@@ -989,6 +1002,7 @@ async function getAutomationFlowByAdId(tenantId: string, metaAdId: string): Prom
     type: flow.type,
     model: flow.model,
     system_prompt: flow.system_prompt,
+    tags: flow.tags ?? [],
     automation_campaign_id: (data as any).id,
     executions: (data as any).executions ?? 0,
   }

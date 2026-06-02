@@ -342,10 +342,11 @@ export async function getActiveFlow(tenantId: string): Promise<{
   type: string
   model: string
   system_prompt: string | null
+  tags: string[] | null
 } | null> {
   const { data } = await supabase
     .from('flows')
-    .select('id, name, type, model, system_prompt')
+    .select('id, name, type, model, system_prompt, tags')
     .eq('tenant_id', tenantId)
     .eq('active', true)
     .order('created_at', { ascending: false })
@@ -361,10 +362,11 @@ export async function getFlowById(flowId: string, tenantId: string): Promise<{
   type: string
   model: string
   system_prompt: string | null
+  tags: string[] | null
 } | null> {
   const { data } = await supabase
     .from('flows')
-    .select('id, name, type, model, system_prompt')
+    .select('id, name, type, model, system_prompt, tags')
     .eq('id', flowId)
     .eq('tenant_id', tenantId)
     .maybeSingle()

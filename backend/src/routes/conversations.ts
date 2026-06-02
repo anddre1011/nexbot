@@ -4,6 +4,12 @@ import { supabase } from '../services/supabase'
 import { sendTextMessage, sendAudioMessage, sendMediaByType } from '../services/whatsapp'
 import { executeWelcomeFlow } from '../services/flow-engine'
 
+const AGENT_DISABLED_TAG = 'agent_disabled'
+
+function isFlowAgentEnabled(flow?: { tags?: string[] | null } | null) {
+  return !flow?.tags?.includes(AGENT_DISABLED_TAG)
+}
+
 const router = Router()
 
 router.use(requireAuth)
@@ -456,10 +462,20 @@ router.post('/:id/trigger-flow', async (req, res) => {
 
   const creds = { metaToken: (tenant as any)?.meta_token, phoneNumberId: (tenant as any)?.phone_number_id }
 
+  const { data: flow } = await supabase
+    .from('flows')
+    .select('id, tags')
+    .eq('tenant_id', tenantId)
+    .eq('id', flow_id)
+    .maybeSingle()
+
+  if (!flow) { res.status(404).json({ error: 'Flow not found' }); return }
+  const agentEnabled = isFlowAgentEnabled(flow as { tags?: string[] | null })
+
   // Vincular flujo a la conversación y ejecutar steps de bienvenida
   await supabase
     .from('conversations')
-    .update({ flow_id, flow_step: 0, ai_enabled: true, status: 'bot' })
+    .update({ flow_id, flow_step: 0, ai_enabled: agentEnabled, status: agentEnabled ? 'bot' : 'open' })
     .eq('id', req.params.id)
 
   await supabase

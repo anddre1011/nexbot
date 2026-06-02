@@ -22,7 +22,7 @@ router.get('/', async (_req, res) => {
 
   const { data, error } = await supabase
     .from('flows')
-    .select('id, name, type, model, system_prompt, handoff_agent_name, welcome_items, inactivity_messages, conversion_enabled, conversion_message, executions, active, created_at')
+    .select('id, name, type, model, system_prompt, handoff_agent_name, welcome_items, inactivity_messages, conversion_enabled, conversion_message, executions, active, tags, created_at')
     .eq('tenant_id', tenantId)
     .order('created_at', { ascending: false })
 
@@ -35,7 +35,7 @@ router.post('/', async (req, res) => {
   const tenantId = await getTenantId(res.locals.user.id)
   if (!tenantId) { res.status(404).json({ error: 'Tenant not found' }); return }
 
-  const { name, type, model, system_prompt, handoff_agent_name, welcome_items, inactivity_messages } = req.body
+  const { name, type, model, system_prompt, handoff_agent_name, welcome_items, inactivity_messages, tags } = req.body
   if (!name?.trim()) { res.status(400).json({ error: 'name is required' }); return }
 
   const { data, error } = await supabase
@@ -49,8 +49,9 @@ router.post('/', async (req, res) => {
       handoff_agent_name:  handoff_agent_name  ?? null,
       welcome_items:       welcome_items       ?? [],
       inactivity_messages: inactivity_messages ?? [],
+      tags:                tags                ?? [],
     })
-    .select('id, name, type, model, executions, active, created_at')
+    .select('id, name, type, model, executions, active, tags, created_at')
     .single()
 
   if (error) { res.status(500).json({ error: error.message }); return }
@@ -68,7 +69,7 @@ router.patch('/:id', async (req, res) => {
 
   const { data, error } = await supabase
     .from('flows').update(updates).eq('id', req.params.id)
-    .select('id, name, type, model, executions, active').single()
+    .select('id, name, type, model, executions, active, tags').single()
 
   if (error) { res.status(500).json({ error: error.message }); return }
   res.json(data)

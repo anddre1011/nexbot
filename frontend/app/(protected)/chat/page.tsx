@@ -307,6 +307,8 @@ export default function ChatPage() {
       })
       setShowFlowPicker(false)
       setShowComposerFlowPicker(false)
+      const latest = await apiFetch<Message[]>(`/api/conversations/${selectedId}/messages`)
+      setMessages(latest)
       fetchConversations()
     } catch (err) {
       console.error('[chat] trigger-flow:', err)
@@ -659,7 +661,7 @@ export default function ChatPage() {
                 </button>
                 {showComposerFlowPicker && (
                   <div style={{ background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.08)' }}
-                    className="absolute bottom-full mb-2 right-0 w-56 rounded-xl overflow-hidden shadow-xl z-20">
+                    className="absolute bottom-full mb-2 right-0 hidden w-56 rounded-xl overflow-hidden shadow-xl z-20 md:block">
                     {flows.length === 0 ? (
                       <p className="px-3 py-3 text-xs text-gray-600 text-center">Sin flujos disponibles</p>
                     ) : flows.map(f => (
@@ -824,7 +826,7 @@ export default function ChatPage() {
               </button>
               {showFlowPicker && (
                 <div style={{ background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.08)' }}
-                  className="absolute bottom-full mb-2 left-0 right-0 rounded-xl overflow-hidden shadow-xl z-10">
+                  className="absolute bottom-full mb-2 left-0 right-0 hidden rounded-xl overflow-hidden shadow-xl z-10 md:block">
                   {flows.length === 0 ? (
                     <p className="px-3 py-3 text-xs text-gray-600 text-center">Sin flujos disponibles</p>
                   ) : flows.map(f => (
@@ -864,6 +866,50 @@ export default function ChatPage() {
           </>
         )}
       </aside>
+      {(showComposerFlowPicker || showFlowPicker) && (
+        <div
+          className="fixed inset-0 z-[80] flex items-end bg-black/60 p-3 md:hidden"
+          onClick={() => {
+            setShowComposerFlowPicker(false)
+            setShowFlowPicker(false)
+          }}
+        >
+          <div
+            style={{ background: '#141421', border: '1px solid rgba(255,255,255,0.10)' }}
+            className="w-full rounded-2xl p-3 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-2 flex items-center justify-between">
+              <p className="text-sm font-semibold text-gray-100">Enviar flujo</p>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowComposerFlowPicker(false)
+                  setShowFlowPicker(false)
+                }}
+                className="rounded-lg px-2 py-1 text-xs text-gray-500 hover:bg-white/5 hover:text-white"
+              >
+                Cerrar
+              </button>
+            </div>
+            <div className="max-h-[55dvh] overflow-y-auto">
+              {flows.length === 0 ? (
+                <p className="py-5 text-center text-xs text-gray-600">Sin flujos disponibles</p>
+              ) : flows.map(f => (
+                <button
+                  key={f.id}
+                  type="button"
+                  onClick={() => handleTriggerFlow(f.id)}
+                  className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm text-gray-200 transition hover:bg-white/5"
+                >
+                  <span className={`h-2 w-2 shrink-0 rounded-full ${f.active ? 'bg-emerald-400' : 'bg-gray-600'}`} />
+                  <span className="min-w-0 flex-1 truncate">{f.name}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
       </div>{/* end 3 columnas */}
     </div>
   )

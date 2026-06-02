@@ -10,6 +10,7 @@ import InactivityRulesEditor from './InactivityRulesEditor'
 // ─── tipos ────────────────────────────────────────────────────────────────────
 type FlowType  = 'ai' | 'conversational_ai'
 type ModelId   = 'gpt-4o' | 'gpt-4o-mini' | 'gpt-4.1' | 'gpt-3.5-turbo' | 'deepseek-v4-pro' | 'deepseek-v4-flash' | 'deepseek-chat' | 'deepseek-reasoner' | 'hybrid-deepseek-gpt4o' | 'hybrid-deepseek-pro-gpt4o'
+const AGENT_DISABLED_TAG = 'agent_disabled'
 
 interface WelcomeItem       { id: string; type: 'text' | 'image' | 'video'; content: string }
 interface InactivityMsg     { id: string; delay: number; unit: 'minutes' | 'hours'; message: string }
@@ -28,6 +29,7 @@ interface Flow {
   conversion_message:    string | null
   executions:            number
   active:                boolean
+  tags?:                 string[] | null
   created_at:            string
 }
 
@@ -43,6 +45,8 @@ interface FormState {
   conversion_message:  string
   inactivity_delay:    string
   inactivity_unit:     'minutes' | 'hours'
+  agent_enabled:       boolean
+  tags:                string[]
 }
 
 const MODELS: { id: ModelId; label: string; desc: string; badge?: string }[] = [
@@ -87,6 +91,7 @@ const EMPTY: FormState = {
   name: '', type: 'conversational_ai', model: 'gpt-4o', system_prompt: DEFAULT_PROMPT,
   handoff_agent_name: '', welcome_items: [], inactivity_messages: [],
   conversion_enabled: false, conversion_message: '', inactivity_delay: '60', inactivity_unit: 'minutes',
+  agent_enabled: true, tags: [],
 }
 
 // ─── página principal ─────────────────────────────────────────────────────────
@@ -320,6 +325,8 @@ function FlowPanel({ flow, medias, onClose, onSaved, onMediaCreated }: {
     conversion_message:  flow.conversion_message ?? '',
     inactivity_delay:    '60',
     inactivity_unit:     'minutes',
+    agent_enabled:       !(flow.tags ?? []).includes(AGENT_DISABLED_TAG),
+    tags:                flow.tags ?? [],
   } : { ...EMPTY })
   const [saving,          setSaving]          = useState(false)
   const [error,           setError]           = useState('')
@@ -387,6 +394,9 @@ function FlowPanel({ flow, medias, onClose, onSaved, onMediaCreated }: {
   async function handleSave() {
     if (!form.name.trim()) { setError('El nombre es obligatorio'); return }
     setSaving(true); setSaved(false); setError(''); setSaveStatus('Guardando flujo...')
+    const nextTags = form.agent_enabled
+      ? form.tags.filter((tag) => tag !== AGENT_DISABLED_TAG)
+      : Array.from(new Set([...form.tags, AGENT_DISABLED_TAG]))
     const body = {
       name:               form.name.trim(),
       type:               flowSteps.length > 0 ? 'conversational_ai' : form.type,
@@ -397,6 +407,7 @@ function FlowPanel({ flow, medias, onClose, onSaved, onMediaCreated }: {
       inactivity_messages: [],
       conversion_enabled: conversions.length > 0,
       conversion_message: null,
+      tags:               nextTags,
     }
     try {
       let flowId: string
@@ -488,8 +499,41 @@ function FlowPanel({ flow, medias, onClose, onSaved, onMediaCreated }: {
             )}
           </div>
 
+          <div
+            style={{
+              background: form.agent_enabled ? 'rgba(16,185,129,0.06)' : 'rgba(245,158,11,0.08)',
+              border: `1px solid ${form.agent_enabled ? 'rgba(16,185,129,0.22)' : 'rgba(245,158,11,0.28)'}`,
+            }}
+            className="rounded-xl p-3"
+          >
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-xs font-bold uppercase tracking-widest text-gray-400">Agente IA</p>
+                <p className="mt-1 text-xs leading-relaxed text-gray-500">
+                  {form.agent_enabled
+                    ? 'Activo: despues del flujo, la IA seguira respondiendo.'
+                    : 'Apagado: solo se enviara el flujo inicial y el chat quedara abierto.'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => set('agent_enabled', !form.agent_enabled)}
+                aria-pressed={form.agent_enabled}
+                className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors ${
+                  form.agent_enabled ? 'bg-emerald-600' : 'bg-amber-500/70'
+                }`}
+              >
+                <span
+                  className={`inline-block h-5 w-5 rounded-full bg-white shadow transition-transform ${
+                    form.agent_enabled ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+            </div>
+          </div>
+
           {/* Prompt editor */}
-          <div>
+          <div className={form.agent_enabled ? '' : 'opacity-60'}>
             <div className="mb-2 flex items-center justify-between gap-2">
               <label className="text-xs font-bold uppercase tracking-widest text-gray-500">Prompt del agente</label>
               <div className="flex items-center gap-1.5">
