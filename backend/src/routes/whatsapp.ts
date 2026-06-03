@@ -29,6 +29,53 @@ function isFlowAgentEnabled(flow?: { tags?: string[] | null } | null) {
   return !flow?.tags?.includes(AGENT_DISABLED_TAG)
 }
 
+function normalizeInboundText(text: string) {
+  return text
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function shouldDisqualifyFromInbound(text: string | null | undefined) {
+  const normalized = normalizeInboundText(text ?? '')
+  if (!normalized) return false
+
+  const hardStopPhrases = [
+    'no me interesa',
+    'no estoy interesado',
+    'no estoy interesada',
+    'ya no quiero',
+    'no quiero mas',
+    'no quiero recibir',
+    'no quiero mensajes',
+    'no me mande mas',
+    'no me mandes mas',
+    'no mande mas',
+    'no mandes mas',
+    'no me escriba',
+    'no me escribas',
+    'deja de escribirme',
+    'deje de escribirme',
+    'dejame en paz',
+    'sacame de la lista',
+    'borrame de la lista',
+  ]
+
+  if (hardStopPhrases.some((phrase) => normalized.includes(phrase))) return true
+
+  const shortRejects = new Set([
+    'no quiero',
+    'no gracias',
+    'ya no',
+    'no por favor',
+  ])
+  const wordCount = normalized.split(' ').length
+  return wordCount <= 4 && shortRejects.has(normalized)
+}
+
 // ─── Verificación de webhook Meta ────────────────────────────────────────────
 router.get('/webhook', (req, res) => {
   const mode      = req.query['hub.mode']
@@ -251,7 +298,7 @@ async function processMessage(params: {
   let keywordFlow: FlowInfo | null = null
   if (type === 'text' && inboundContent) {
     // Normalizar acentos: "máster" === "master", "información" === "informacion"
-    const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim()
+    const norm = (s: string) => normalizeInboundText(s)
     const msgNorm = norm(inboundContent)
 
     const { data: keywords } = await supabase
@@ -351,6 +398,27 @@ async function processMessage(params: {
     return // No responder — IA desactivada (contacto convertido o descalificado)
   }
 
+  async function markDisqualified(reason: string) {
+    console.log(`[webhook] Contact ${contact.id} disqualified: ${reason}`)
+    await Promise.all([
+      supabase.from('contacts').update({ kanban_stage: 'disqualified' }).eq('id', contact.id),
+      supabase.from('conversations').update({ status: 'disqualified', ai_enabled: false }).eq('id', conversation.id),
+    ])
+    await clearInactivityTimers(conversation.id)
+    createNotification({
+      tenantId,
+      type: 'disqualification',
+      title: 'Contacto descalificado',
+      body: `${from} no estaba interesado`,
+      data: { phone: from },
+    }).catch(() => {})
+  }
+
+  if (shouldDisqualifyFromInbound(inboundContent)) {
+    await markDisqualified('explicit inbound rejection')
+    return
+  }
+
   if (type === 'text' && activeFlow) {
     const handledChoice = await handleUnassignedPaymentChoice(
       activeFlow.id,
@@ -401,11 +469,11 @@ async function processMessage(params: {
       }
 
       if (fn === 'disqualified') {
-        await Promise.all([
-          supabase.from('contacts').update({ kanban_stage: 'disqualified' }).eq('id', contact.id),
-          supabase.from('conversations').update({ status: 'disqualified', ai_enabled: false }).eq('id', conversation.id),
-        ])
-        await clearInactivityTimers(conversation.id)
+        if (!shouldDisqualifyFromInbound(inboundContent)) {
+          console.log('[webhook] Ignoring disqualified function because inbound text was not an explicit rejection')
+          continue
+        }
+        await markDisqualified('agent function confirmed by inbound rejection')
         continue
       }
 
@@ -465,25 +533,6 @@ async function processMessage(params: {
   }
 
   // 7f. (Eliminado: handoff automático por texto, ahora se usa {{function:call_attendant}})
-
-  // 7g. Detectar descalificación → kanban disqualified + desactivar IA
-  const disqualifyKeywords = [
-    'no me interesa', 'no quiero', 'no gracias', 'déjame en paz',
-    'no necesito', 'basta', 'para de escribir', 'no me escribas',
-    'no me molestes', 'me molesta', 'me tiene harto', 'spameando',
-    'no me interesa para nada', 'no compro',
-    'reportar', 'voy a reportar',
-  ]
-  const inboundNorm = (inboundContent ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
-  if (disqualifyKeywords.some(kw => inboundNorm.includes(kw.normalize('NFD').replace(/[̀-ͯ]/g, '')))) {
-    console.log(`[webhook] Contact ${contact.id} disqualified`)
-    await Promise.all([
-      supabase.from('contacts').update({ kanban_stage: 'disqualified' }).eq('id', contact.id),
-      supabase.from('conversations').update({ status: 'disqualified', ai_enabled: false }).eq('id', conversation.id),
-    ])
-    await clearInactivityTimers(conversation.id)
-    createNotification({ tenantId, type: 'disqualification', title: '❌ Contacto descalificado', body: `${from} no estaba interesado`, data: { phone: from } }).catch(() => {})
-  }
 }
 
 async function persistInboundMedia(
