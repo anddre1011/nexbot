@@ -17,6 +17,9 @@ interface Conversation {
   last_message_at: string | null
   unread_count:    number
   campaign_id:     string | null
+  flow_id?:         string | null
+  flow_name?:       string | null
+  flow_color?:      string | null
   has_confirmed_sale?: boolean
   sale_amount?:     number | null
 }
@@ -30,6 +33,15 @@ interface Message {
 }
 
 type Tab = 'all' | 'assigned' | 'unassigned'
+
+const FLOW_CHAT_COLORS: Record<string, { hex: string; bg: string; bgActive: string; border: string; borderActive: string; shadow: string; text: string }> = {
+  violet:  { hex: '#8b5cf6', bg: 'rgba(139,92,246,0.08)', bgActive: 'rgba(139,92,246,0.14)', border: 'rgba(139,92,246,0.24)', borderActive: 'rgba(139,92,246,0.45)', shadow: 'rgba(139,92,246,0.22)', text: '#ddd6fe' },
+  emerald: { hex: '#10b981', bg: 'rgba(16,185,129,0.08)', bgActive: 'rgba(16,185,129,0.14)', border: 'rgba(16,185,129,0.24)', borderActive: 'rgba(16,185,129,0.45)', shadow: 'rgba(16,185,129,0.22)', text: '#a7f3d0' },
+  sky:     { hex: '#38bdf8', bg: 'rgba(56,189,248,0.08)', bgActive: 'rgba(56,189,248,0.14)', border: 'rgba(56,189,248,0.24)', borderActive: 'rgba(56,189,248,0.45)', shadow: 'rgba(56,189,248,0.22)', text: '#bae6fd' },
+  amber:   { hex: '#f59e0b', bg: 'rgba(245,158,11,0.08)', bgActive: 'rgba(245,158,11,0.14)', border: 'rgba(245,158,11,0.24)', borderActive: 'rgba(245,158,11,0.45)', shadow: 'rgba(245,158,11,0.22)', text: '#fde68a' },
+  rose:    { hex: '#f43f5e', bg: 'rgba(244,63,94,0.08)', bgActive: 'rgba(244,63,94,0.14)', border: 'rgba(244,63,94,0.24)', borderActive: 'rgba(244,63,94,0.45)', shadow: 'rgba(244,63,94,0.22)', text: '#fecdd3' },
+  cyan:    { hex: '#06b6d4', bg: 'rgba(6,182,212,0.08)', bgActive: 'rgba(6,182,212,0.14)', border: 'rgba(6,182,212,0.24)', borderActive: 'rgba(6,182,212,0.45)', shadow: 'rgba(6,182,212,0.22)', text: '#a5f3fc' },
+}
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 function initials(name: string | null, phone: string) {
@@ -459,10 +471,19 @@ export default function ChatPage() {
           )}
           {filtered.map((conv) => {
             const converted = isConvertedConversation(conv)
+            const flowAccent = conv.flow_color ? FLOW_CHAT_COLORS[conv.flow_color] : null
+            const flowStyle = !converted && flowAccent
+              ? {
+                  background: selectedId === conv.id ? flowAccent.bgActive : flowAccent.bg,
+                  borderColor: selectedId === conv.id ? flowAccent.borderActive : flowAccent.border,
+                  boxShadow: selectedId === conv.id ? `0 0 22px ${flowAccent.shadow}` : undefined,
+                }
+              : undefined
             return (
             <li key={conv.id}>
               <button
                 onClick={() => setSelectedId(conv.id)}
+                style={flowStyle}
                 className={`group relative mx-2 my-1 flex w-[calc(100%-1rem)] items-start gap-3 rounded-xl border px-3 py-3 text-left transition-all hover:-translate-y-0.5 ${
                   selectedId === conv.id
                     ? converted
@@ -473,6 +494,12 @@ export default function ChatPage() {
                       : 'border-transparent hover:bg-white/5'
                 }`}
               >
+                {flowAccent && (
+                  <span
+                    className="absolute bottom-2 left-1 top-2 w-1 rounded-full"
+                    style={{ background: flowAccent.hex, boxShadow: `0 0 14px ${flowAccent.shadow}` }}
+                  />
+                )}
                 {/* avatar */}
                 <div className="relative shrink-0">
                   <div className={`flex h-10 w-10 items-center justify-center rounded-full text-xs font-bold text-white transition-shadow ${
@@ -483,7 +510,8 @@ export default function ChatPage() {
                     selectedId === conv.id
                       ? converted ? 'shadow-[0_0_18px_rgba(245,158,11,0.55)]' : 'shadow-[0_0_18px_rgba(16,185,129,0.55)]'
                       : converted ? 'group-hover:shadow-[0_0_14px_rgba(245,158,11,0.35)]' : 'group-hover:shadow-[0_0_14px_rgba(16,185,129,0.35)]'
-                  }`}>
+                  }`}
+                  style={!converted && flowAccent ? { backgroundColor: flowAccent.hex, boxShadow: selectedId === conv.id ? `0 0 18px ${flowAccent.shadow}` : undefined } : undefined}>
                     {initials(conv.contact_name, conv.contact_phone)}
                   </div>
                   {conv.status === 'bot' && (
@@ -501,6 +529,14 @@ export default function ChatPage() {
                       {converted && (
                         <span className="shrink-0 rounded-full border border-amber-400/25 bg-amber-400/10 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-200">
                           Compró
+                        </span>
+                      )}
+                      {flowAccent && conv.flow_name && (
+                        <span
+                          className="max-w-[92px] shrink-0 truncate rounded-full border px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide"
+                          style={{ borderColor: flowAccent.border, background: flowAccent.bg, color: flowAccent.text }}
+                        >
+                          {conv.flow_name}
                         </span>
                       )}
                     </div>

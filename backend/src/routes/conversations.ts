@@ -5,9 +5,15 @@ import { sendTextMessage, sendAudioMessage, sendMediaByType } from '../services/
 import { executeWelcomeFlow } from '../services/flow-engine'
 
 const AGENT_DISABLED_TAG = 'agent_disabled'
+const CHAT_COLOR_TAG_PREFIX = 'chat_color:'
 
 function isFlowAgentEnabled(flow?: { tags?: string[] | null } | null) {
   return !flow?.tags?.includes(AGENT_DISABLED_TAG)
+}
+
+function flowChatColorFromTags(tags?: string[] | null) {
+  const tag = tags?.find((item) => item.startsWith(CHAT_COLOR_TAG_PREFIX))
+  return tag ? tag.slice(CHAT_COLOR_TAG_PREFIX.length) : null
 }
 
 const router = Router()
@@ -170,7 +176,7 @@ router.get('/', async (req, res) => {
 
   const { data: conversations, error } = await supabase
     .from('conversations')
-    .select('id, status, campaign_id, created_at, last_read_at, contact_id, contacts!inner(id, phone, name), campaigns(name)')
+    .select('id, status, campaign_id, flow_id, created_at, last_read_at, contact_id, contacts!inner(id, phone, name), campaigns(name)')
     .eq('tenant_id', tenantId)
     .order('created_at', { ascending: false })
 
@@ -181,6 +187,15 @@ router.get('/', async (req, res) => {
   const { messages, lastByConversation } = await fetchLatestMessagesByConversation(conversationIds)
   const unreadByConversation = new Map<string, number>()
   const latestSaleByContact = await fetchLatestSaleByContact(tenantId, contactIds)
+  const flowIds = [...new Set((conversations ?? []).map((row: any) => row.flow_id).filter(Boolean))]
+  const { data: flows } = flowIds.length
+    ? await supabase
+        .from('flows')
+        .select('id, name, tags')
+        .eq('tenant_id', tenantId)
+        .in('id', flowIds)
+    : { data: [] as any[] }
+  const flowById = new Map((flows ?? []).map((flow: any) => [flow.id, flow]))
 
   for (const row of conversations ?? []) {
     const lastReadAt = row.last_read_at ? new Date(row.last_read_at).getTime() : 0
@@ -195,10 +210,14 @@ router.get('/', async (req, res) => {
   const rows = (conversations ?? []).map((row: any) => {
     const contact = Array.isArray(row.contacts) ? row.contacts[0] : row.contacts
     const last = lastByConversation.get(row.id)
+    const flow = row.flow_id ? flowById.get(row.flow_id) : null
     return {
       id: row.id,
       status: row.status,
       campaign_id: row.campaign_id,
+      flow_id: row.flow_id,
+      flow_name: flow?.name ?? null,
+      flow_color: flowChatColorFromTags(flow?.tags) ?? null,
       created_at: row.created_at,
       contact_id: row.contact_id,
       contact_phone: contact?.phone ?? '',

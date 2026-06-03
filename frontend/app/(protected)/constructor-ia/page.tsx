@@ -11,6 +11,30 @@ import InactivityRulesEditor from './InactivityRulesEditor'
 type FlowType  = 'ai' | 'conversational_ai'
 type ModelId   = 'gpt-4o' | 'gpt-4o-mini' | 'gpt-4.1' | 'gpt-3.5-turbo' | 'deepseek-v4-pro' | 'deepseek-v4-flash' | 'deepseek-chat' | 'deepseek-reasoner' | 'hybrid-deepseek-gpt4o' | 'hybrid-deepseek-pro-gpt4o'
 const AGENT_DISABLED_TAG = 'agent_disabled'
+const CHAT_COLOR_TAG_PREFIX = 'chat_color:'
+
+const CHAT_COLOR_OPTIONS = [
+  { id: 'violet',  label: 'Morado',  hex: '#8b5cf6', bg: 'rgba(139,92,246,0.12)', border: 'rgba(139,92,246,0.38)' },
+  { id: 'emerald', label: 'Verde',   hex: '#10b981', bg: 'rgba(16,185,129,0.12)', border: 'rgba(16,185,129,0.38)' },
+  { id: 'sky',     label: 'Azul',    hex: '#38bdf8', bg: 'rgba(56,189,248,0.12)', border: 'rgba(56,189,248,0.38)' },
+  { id: 'amber',   label: 'Amarillo', hex: '#f59e0b', bg: 'rgba(245,158,11,0.12)', border: 'rgba(245,158,11,0.38)' },
+  { id: 'rose',    label: 'Rojo',    hex: '#f43f5e', bg: 'rgba(244,63,94,0.12)', border: 'rgba(244,63,94,0.38)' },
+  { id: 'cyan',    label: 'Cyan',    hex: '#06b6d4', bg: 'rgba(6,182,212,0.12)', border: 'rgba(6,182,212,0.38)' },
+] as const
+
+function getFlowChatColor(tags?: string[] | null) {
+  const tag = tags?.find((item) => item.startsWith(CHAT_COLOR_TAG_PREFIX))
+  const color = tag ? tag.slice(CHAT_COLOR_TAG_PREFIX.length) : ''
+  return CHAT_COLOR_OPTIONS.some((item) => item.id === color) ? color : 'violet'
+}
+
+function getFlowChatColorOption(tags?: string[] | null) {
+  return CHAT_COLOR_OPTIONS.find((item) => item.id === getFlowChatColor(tags)) ?? CHAT_COLOR_OPTIONS[0]
+}
+
+function setFlowChatColorTag(tags: string[], color: string) {
+  return [...tags.filter((tag) => !tag.startsWith(CHAT_COLOR_TAG_PREFIX)), `${CHAT_COLOR_TAG_PREFIX}${color}`]
+}
 
 interface WelcomeItem       { id: string; type: 'text' | 'image' | 'video'; content: string }
 interface InactivityMsg     { id: string; delay: number; unit: 'minutes' | 'hours'; message: string }
@@ -46,6 +70,7 @@ interface FormState {
   inactivity_delay:    string
   inactivity_unit:     'minutes' | 'hours'
   agent_enabled:       boolean
+  chat_color:          string
   tags:                string[]
 }
 
@@ -91,7 +116,7 @@ const EMPTY: FormState = {
   name: '', type: 'conversational_ai', model: 'gpt-4o', system_prompt: DEFAULT_PROMPT,
   handoff_agent_name: '', welcome_items: [], inactivity_messages: [],
   conversion_enabled: false, conversion_message: '', inactivity_delay: '60', inactivity_unit: 'minutes',
-  agent_enabled: true, tags: [],
+  agent_enabled: true, chat_color: 'violet', tags: [],
 }
 
 // ─── página principal ─────────────────────────────────────────────────────────
@@ -236,6 +261,17 @@ export default function ConstructorIAPage() {
                         className="rounded-full px-2 py-0.5 text-[10px] font-mono text-gray-500">
                         {flow.model}
                       </span>
+                      <span
+                        style={{
+                          background: getFlowChatColorOption(flow.tags).bg,
+                          border: `1px solid ${getFlowChatColorOption(flow.tags).border}`,
+                          color: getFlowChatColorOption(flow.tags).hex,
+                        }}
+                        className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold"
+                      >
+                        <span className="h-2 w-2 rounded-full" style={{ background: getFlowChatColorOption(flow.tags).hex }} />
+                        Chat
+                      </span>
                       {flow.conversion_enabled && (
                         <span style={{ background: 'rgba(16,185,129,0.12)', border: '1px solid rgba(16,185,129,0.25)' }}
                           className="rounded-full px-2 py-0.5 text-[10px] font-bold text-emerald-400">
@@ -326,6 +362,7 @@ function FlowPanel({ flow, medias, onClose, onSaved, onMediaCreated }: {
     inactivity_delay:    '60',
     inactivity_unit:     'minutes',
     agent_enabled:       !(flow.tags ?? []).includes(AGENT_DISABLED_TAG),
+    chat_color:          getFlowChatColor(flow.tags),
     tags:                flow.tags ?? [],
   } : { ...EMPTY })
   const [saving,          setSaving]          = useState(false)
@@ -394,9 +431,10 @@ function FlowPanel({ flow, medias, onClose, onSaved, onMediaCreated }: {
   async function handleSave() {
     if (!form.name.trim()) { setError('El nombre es obligatorio'); return }
     setSaving(true); setSaved(false); setError(''); setSaveStatus('Guardando flujo...')
-    const nextTags = form.agent_enabled
+    const agentTags = form.agent_enabled
       ? form.tags.filter((tag) => tag !== AGENT_DISABLED_TAG)
       : Array.from(new Set([...form.tags, AGENT_DISABLED_TAG]))
+    const nextTags = setFlowChatColorTag(agentTags, form.chat_color)
     const body = {
       name:               form.name.trim(),
       type:               flowSteps.length > 0 ? 'conversational_ai' : form.type,
@@ -471,6 +509,34 @@ function FlowPanel({ flow, medias, onClose, onSaved, onMediaCreated }: {
 
           {/* Nombre */}
           <InputField label="Nombre del flujo" value={form.name} onChange={(v) => set('name', v)} placeholder="Flujo de ventas principal" required />
+
+          <div>
+            <label className="mb-2 block text-xs font-bold uppercase tracking-widest text-gray-500">Color en el chat</label>
+            <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
+              {CHAT_COLOR_OPTIONS.map((color) => {
+                const active = form.chat_color === color.id
+                return (
+                  <button
+                    key={color.id}
+                    type="button"
+                    onClick={() => set('chat_color', color.id)}
+                    style={{
+                      background: active ? color.bg : 'rgba(255,255,255,0.04)',
+                      border: `1px solid ${active ? color.border : 'rgba(255,255,255,0.08)'}`,
+                    }}
+                    className="flex min-w-0 items-center gap-2 rounded-xl px-2.5 py-2 text-left text-xs font-semibold text-gray-300 transition hover:bg-white/5"
+                    aria-pressed={active}
+                  >
+                    <span
+                      className="h-3.5 w-3.5 shrink-0 rounded-full"
+                      style={{ background: color.hex, boxShadow: active ? `0 0 14px ${color.hex}80` : undefined }}
+                    />
+                    <span className="truncate">{color.label}</span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
 
           {/* Modelo */}
           <div>
