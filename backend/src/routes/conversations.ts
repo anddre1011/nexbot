@@ -3,6 +3,8 @@ import { requireAuth } from '../middlewares/auth'
 import { supabase } from '../services/supabase'
 import { sendTextMessage, sendAudioMessage, sendMediaByType } from '../services/whatsapp'
 import { executeWelcomeFlow } from '../services/flow-engine'
+import { propagateCampaignToSale } from '../services/campaigns'
+import { createNotification } from '../services/notifications'
 
 const AGENT_DISABLED_TAG = 'agent_disabled'
 const CHAT_COLOR_TAG_PREFIX = 'chat_color:'
@@ -506,6 +508,107 @@ router.post('/:id/trigger-flow', async (req, res) => {
   await executeWelcomeFlow(flow_id, phone, req.params.id, tenantId, creds)
 
   res.json({ ok: true })
+})
+
+router.post('/:id/mark-paid', async (req, res) => {
+  const { product_id } = req.body
+  if (!product_id) { res.status(400).json({ error: 'product_id required' }); return }
+
+  const tenantId = await getTenantId(res.locals.user.id)
+  if (!tenantId) { res.status(404).json({ error: 'Tenant not found' }); return }
+
+  const { data: conv } = await supabase
+    .from('conversations')
+    .select('contact_id')
+    .eq('tenant_id', tenantId)
+    .eq('id', req.params.id)
+    .single()
+
+  if (!conv) { res.status(404).json({ error: 'Conversation not found' }); return }
+
+  const { data: product, error: productErr } = await supabase
+    .from('products')
+    .select('id, name, price, currency, active')
+    .eq('tenant_id', tenantId)
+    .eq('id', product_id)
+    .single()
+
+  if (productErr || !product) { res.status(404).json({ error: 'Product not found' }); return }
+
+  const amount = Number((product as any).price)
+  if (!Number.isFinite(amount)) { res.status(400).json({ error: 'Product price is invalid' }); return }
+
+  const { data: existingSale } = await supabase
+    .from('sales')
+    .select('id')
+    .eq('tenant_id', tenantId)
+    .eq('contact_id', conv.contact_id)
+    .eq('product', (product as any).name)
+    .eq('amount', amount)
+    .eq('status', 'confirmed')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  let saleId = existingSale?.id as string | undefined
+
+  if (!saleId) {
+    const { data: createdSale, error: saleErr } = await supabase
+      .from('sales')
+      .insert({
+        tenant_id: tenantId,
+        contact_id: conv.contact_id,
+        product: (product as any).name,
+        amount,
+        status: 'confirmed',
+      })
+      .select('id')
+      .single()
+
+    if (saleErr || !createdSale?.id) {
+      res.status(500).json({ error: saleErr?.message || 'Could not create sale' })
+      return
+    }
+
+    saleId = createdSale.id
+    createNotification({
+      tenantId,
+      type: 'sale',
+      title: '💰 Nueva venta',
+      body: `${(product as any).name} — ${(product as any).currency ?? 'BOB'} ${amount}`,
+      data: { saleId, amount, product: (product as any).name, manual: true },
+    }).catch(() => {})
+  }
+
+  if (!saleId) {
+    res.status(500).json({ error: 'Could not resolve sale' })
+    return
+  }
+
+  await propagateCampaignToSale(saleId, req.params.id)
+
+  await Promise.all([
+    supabase
+      .from('conversations')
+      .update({ status: 'converted', ai_enabled: false })
+      .eq('id', req.params.id)
+      .eq('tenant_id', tenantId),
+    supabase
+      .from('contacts')
+      .update({ kanban_stage: 'converted' })
+      .eq('id', conv.contact_id)
+      .eq('tenant_id', tenantId),
+  ])
+
+  res.status(existingSale?.id ? 200 : 201).json({
+    ok: true,
+    sale_id: saleId,
+    status: 'converted',
+    product: (product as any).name,
+    amount,
+    currency: (product as any).currency ?? 'BOB',
+    existing: !!existingSale?.id,
+  })
 })
 
 // ─── PATCH /api/conversations/:id/status — mover en Kanban ───────────────────

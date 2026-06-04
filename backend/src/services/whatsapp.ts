@@ -13,6 +13,26 @@ function makeHeaders(token: string) {
   return { Authorization: `Bearer ${token}` }
 }
 
+function ensureClickableUrl(value: string) {
+  if (/^https?:\/\//i.test(value)) return value
+  return `https://${value}`
+}
+
+export function formatWhatsAppText(input: string) {
+  return String(input ?? '')
+    .replace(
+      /\[([^\]]+)\]\((https?:\/\/[^\s)]+|www\.[^\s)]+|[a-z0-9][a-z0-9.-]*\.[a-z]{2,}[^\s)]*)\)/gi,
+      (_match, label: string, url: string) => `${label}: ${ensureClickableUrl(url)}`
+    )
+    .replace(
+      /(^|[\s(])((?:www\.)?[a-z0-9][a-z0-9.-]*\.[a-z]{2,}(?:\/[^\s<>()]*)?)/gi,
+      (_match, prefix: string, url: string) => `${prefix}${ensureClickableUrl(url)}`
+    )
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{4,}/g, '\n\n\n')
+    .trim()
+}
+
 // Contexto del tenant para envíos — se pasa por el webhook
 export interface TenantCredentials {
   metaToken?:     string | null
@@ -22,9 +42,10 @@ export interface TenantCredentials {
 // ─── Envío de mensajes de texto ──────────────────────────────────────────────
 export async function sendTextMessage(to: string, body: string, creds?: TenantCredentials) {
   const { token, phoneId } = resolveCredentials(creds?.metaToken, creds?.phoneNumberId)
+  const textBody = formatWhatsAppText(body)
   return axios.post(
     `${BASE_URL}/${phoneId}/messages`,
-    { messaging_product: 'whatsapp', to, type: 'text', text: { body } },
+    { messaging_product: 'whatsapp', to, type: 'text', text: { body: textBody } },
     { headers: makeHeaders(token) }
   )
 }
@@ -33,7 +54,7 @@ export async function sendTextMessage(to: string, body: string, creds?: TenantCr
 export async function sendImageMessage(to: string, imageUrl: string, caption?: string, creds?: TenantCredentials) {
   const { token, phoneId } = resolveCredentials(creds?.metaToken, creds?.phoneNumberId)
   const image: Record<string, string> = { link: imageUrl }
-  if (caption) image.caption = caption
+  if (caption) image.caption = formatWhatsAppText(caption)
   return axios.post(
     `${BASE_URL}/${phoneId}/messages`,
     { messaging_product: 'whatsapp', to, type: 'image', image },
@@ -45,7 +66,7 @@ export async function sendImageMessage(to: string, imageUrl: string, caption?: s
 export async function sendVideoMessage(to: string, videoUrl: string, caption?: string, creds?: TenantCredentials) {
   const { token, phoneId } = resolveCredentials(creds?.metaToken, creds?.phoneNumberId)
   const video: Record<string, string> = { link: videoUrl }
-  if (caption) video.caption = caption
+  if (caption) video.caption = formatWhatsAppText(caption)
   return axios.post(
     `${BASE_URL}/${phoneId}/messages`,
     { messaging_product: 'whatsapp', to, type: 'video', video },

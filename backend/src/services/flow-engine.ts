@@ -51,6 +51,8 @@ interface FlowInactivityRule {
   media_url: string | null
 }
 
+const FLOW_STEP_PACE_MS = 750
+
 // ─── Ejecutar flujo de bienvenida ─────────────────────────────────────────────
 // Ejecuta secuencialmente cada paso del flujo inicial (texto → delay → imagen → etc.)
 export async function executeWelcomeFlow(
@@ -76,6 +78,7 @@ export async function executeWelcomeFlow(
             const resolvedText = await resolveMediaVars(step.content, tenantId)
             await sendTextMessage(contactPhone, resolvedText, creds)
             await saveOutbound(conversationId, 'text', resolvedText)
+            await paceAfterSend()
           }
           break
 
@@ -83,6 +86,7 @@ export async function executeWelcomeFlow(
           if (step.media_url) {
             await sendImageMessage(contactPhone, step.media_url, step.content ?? undefined, creds)
             await saveOutbound(conversationId, 'image', step.media_url)
+            await paceAfterSend()
           }
           break
 
@@ -90,6 +94,7 @@ export async function executeWelcomeFlow(
           if (step.media_url) {
             await sendVideoMessage(contactPhone, step.media_url, step.content ?? undefined, creds)
             await saveOutbound(conversationId, 'video', step.media_url)
+            await paceAfterSend()
           }
           break
 
@@ -97,6 +102,7 @@ export async function executeWelcomeFlow(
           if (step.media_url) {
             await sendAudioMessage(contactPhone, step.media_url, creds)
             await saveOutbound(conversationId, 'audio', step.media_url)
+            await paceAfterSend()
           }
           break
 
@@ -104,6 +110,7 @@ export async function executeWelcomeFlow(
           if (step.media_url) {
             await sendDocumentMessage(contactPhone, step.media_url, step.content ?? 'archivo', creds)
             await saveOutbound(conversationId, 'document', step.media_url)
+            await paceAfterSend()
           }
           break
 
@@ -166,6 +173,7 @@ export async function executeConversionFlow(
     if (conv.confirm_message) {
       await sendTextMessage(contactPhone, conv.confirm_message, creds)
       await saveOutbound(conversationId, 'text', conv.confirm_message)
+      await paceAfterSend()
     }
 
     // 2. Vincular producto al contacto (registrar venta)
@@ -206,6 +214,7 @@ export async function executeConversionFlow(
       if (conv.delivery_enabled && conv.products.delivery_url) {
         await sendTextMessage(contactPhone, conv.products.delivery_url, creds)
         await saveOutbound(conversationId, 'text', conv.products.delivery_url)
+        await paceAfterSend()
       }
     }
 
@@ -397,6 +406,7 @@ async function executeConversionSteps(
       if (step.type === 'text' && step.content?.trim()) {
         await sendTextMessage(contactPhone, step.content.trim(), creds)
         await saveOutbound(conversationId, 'text', step.content.trim())
+        await paceAfterSend()
         continue
       }
 
@@ -406,15 +416,19 @@ async function executeConversionSteps(
       if (step.type === 'image') {
         await sendImageMessage(contactPhone, step.media_url, caption, creds)
         await saveOutbound(conversationId, 'image', step.media_url)
+        await paceAfterSend()
       } else if (step.type === 'video') {
         await sendVideoMessage(contactPhone, step.media_url, caption, creds)
         await saveOutbound(conversationId, 'video', step.media_url)
+        await paceAfterSend()
       } else if (step.type === 'audio') {
         await sendAudioMessage(contactPhone, step.media_url, creds)
         await saveOutbound(conversationId, 'audio', step.media_url)
+        await paceAfterSend()
       } else if (step.type === 'document' || step.type === 'file') {
         await sendDocumentMessage(contactPhone, step.media_url, step.content ?? 'archivo', creds)
         await saveOutbound(conversationId, 'document', step.media_url)
+        await paceAfterSend()
       }
     } catch (err) {
       console.error(`[flow-engine] Error executing conversion step ${step.type}:`, err)
@@ -424,6 +438,10 @@ async function executeConversionSteps(
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+async function paceAfterSend() {
+  await sleep(FLOW_STEP_PACE_MS)
 }
 
 async function saveOutbound(conversationId: string, type: string, content: string) {

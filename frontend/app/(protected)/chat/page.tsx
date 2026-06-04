@@ -32,6 +32,14 @@ interface Message {
   created_at: string
 }
 
+interface Product {
+  id:       string
+  name:     string
+  price:    number
+  currency: string
+  active?:  boolean
+}
+
 type Tab = 'all' | 'assigned' | 'unassigned'
 
 const FLOW_CHAT_COLORS: Record<string, { hex: string; bg: string; bgActive: string; border: string; borderActive: string; shadow: string; text: string }> = {
@@ -60,6 +68,12 @@ function fmtTime(iso: string | null) {
 
 function fmtFull(iso: string) {
   return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+}
+
+function fmtDuration(seconds: number) {
+  const mins = Math.floor(seconds / 60).toString().padStart(2, '0')
+  const secs = Math.floor(seconds % 60).toString().padStart(2, '0')
+  return `${mins}:${secs}`
 }
 
 function isUrl(value: string | null) {
@@ -135,10 +149,19 @@ export default function ChatPage() {
   const [recording,       setRecording]       = useState(false)
   const [showFlowPicker,  setShowFlowPicker]  = useState(false)
   const [showComposerFlowPicker, setShowComposerFlowPicker] = useState(false)
+  const [showActionMenu, setShowActionMenu] = useState(false)
+  const [showPaidPicker, setShowPaidPicker] = useState(false)
   const [flows,           setFlows]           = useState<{ id: string; name: string; active: boolean }[]>([])
+  const [products,        setProducts]        = useState<Product[]>([])
+  const [audioPreview,    setAudioPreview]    = useState<{ url: string; blob: Blob } | null>(null)
+  const [recordingSeconds, setRecordingSeconds] = useState(0)
+  const [uploadingAudio, setUploadingAudio] = useState(false)
   const bottomRef        = useRef<HTMLDivElement>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef   = useRef<Blob[]>([])
+  const audioStreamRef   = useRef<MediaStream | null>(null)
+  const cancelRecordingRef = useRef(false)
+  const recordingStartedAtRef = useRef<number | null>(null)
   const fileInputRef     = useRef<HTMLInputElement>(null)
 
   const selected = conversations.find((c) => c.id === selectedId) ?? null
@@ -211,6 +234,31 @@ export default function ChatPage() {
       .catch(() => {})
   }, [])
 
+  useEffect(() => {
+    apiFetch<Product[]>('/api/products')
+      .then((items) => setProducts(items.filter((item) => item.active !== false)))
+      .catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    if (!recording) {
+      setRecordingSeconds(0)
+      return
+    }
+    const timer = window.setInterval(() => {
+      const startedAt = recordingStartedAtRef.current ?? Date.now()
+      setRecordingSeconds(Math.max(0, Math.floor((Date.now() - startedAt) / 1000)))
+    }, 500)
+    return () => window.clearInterval(timer)
+  }, [recording])
+
+  useEffect(() => {
+    return () => {
+      audioStreamRef.current?.getTracks().forEach((track) => track.stop())
+      if (audioPreview?.url) URL.revokeObjectURL(audioPreview.url)
+    }
+  }, [audioPreview?.url])
+
   // ─── enviar mensaje manual (activa human takeover) ──────────────────────────
   async function handleSend() {
     if (!input.trim() || !selectedId || sending) return
@@ -232,52 +280,111 @@ export default function ChatPage() {
     }
   }
 
+  function stopAudioStream() {
+    audioStreamRef.current?.getTracks().forEach((track) => track.stop())
+    audioStreamRef.current = null
+  }
+
+  function resetAudioPreview() {
+    setAudioPreview((current) => {
+      if (current?.url) URL.revokeObjectURL(current.url)
+      return null
+    })
+  }
+
   // ─── grabación y envío de audio ─────────────────────────────────────────────
   async function handleStartRecording() {
+    if (!selectedId || recording || uploadingAudio) return
     try {
+      resetAudioPreview()
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const preferredTypes = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus']
+      const mimeType = preferredTypes.find((type) => MediaRecorder.isTypeSupported(type))
+      audioStreamRef.current = stream
       audioChunksRef.current = []
-      const recorder = new MediaRecorder(stream)
+      cancelRecordingRef.current = false
+      recordingStartedAtRef.current = Date.now()
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined)
 
       recorder.ondataavailable = (e) => {
         if (e.data.size > 0) audioChunksRef.current.push(e.data)
       }
 
-      recorder.onstop = async () => {
-        stream.getTracks().forEach(t => t.stop())
-        const blob = new Blob(audioChunksRef.current, { type: 'audio/ogg; codecs=opus' })
-        const fd = new FormData()
-        fd.append('file', blob, `audio-${Date.now()}.ogg`)
-        try {
-          const { url } = await apiFetch<{ url: string }>('/api/upload/flow-media', {
-            method: 'POST', body: fd, rawBody: true,
-          } as Parameters<typeof apiFetch>[1])
-          await apiFetch(`/api/conversations/${selectedId}/send-audio`, {
-            method: 'POST',
-            body: JSON.stringify({ audio_url: url }),
-          })
-          setMessages(prev => [...prev, {
-            id: crypto.randomUUID(), direction: 'outbound', type: 'audio',
-            content: url, created_at: new Date().toISOString(),
-          }])
-          setConversations(prev => prev.map(c => c.id === selectedId ? { ...c, status: 'human' } : c))
-        } catch (err) {
-          console.error('[audio] send error:', err)
-          alert('Error al enviar audio')
-        }
+      recorder.onstop = () => {
+        const chunks = audioChunksRef.current
+        audioChunksRef.current = []
+        mediaRecorderRef.current = null
         setRecording(false)
+        recordingStartedAtRef.current = null
+        stopAudioStream()
+
+        if (cancelRecordingRef.current) {
+          cancelRecordingRef.current = false
+          return
+        }
+        if (!chunks.length) return
+
+        const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' })
+        const url = URL.createObjectURL(blob)
+        setAudioPreview((current) => {
+          if (current?.url) URL.revokeObjectURL(current.url)
+          return { url, blob }
+        })
       }
 
       mediaRecorderRef.current = recorder
       recorder.start()
       setRecording(true)
     } catch {
+      stopAudioStream()
+      setRecording(false)
       alert('No se pudo acceder al micrófono')
     }
   }
 
   function handleStopRecording() {
-    mediaRecorderRef.current?.stop()
+    const recorder = mediaRecorderRef.current
+    if (recorder && recorder.state !== 'inactive') recorder.stop()
+  }
+
+  function handleCancelRecording() {
+    cancelRecordingRef.current = true
+    const recorder = mediaRecorderRef.current
+    if (recorder && recorder.state !== 'inactive') {
+      recorder.stop()
+    } else {
+      setRecording(false)
+      stopAudioStream()
+    }
+    resetAudioPreview()
+  }
+
+  async function handleSendRecordedAudio() {
+    if (!selectedId || !audioPreview || uploadingAudio) return
+    setUploadingAudio(true)
+    try {
+      const fd = new FormData()
+      const extension = audioPreview.blob.type.includes('ogg') ? 'ogg' : 'webm'
+      fd.append('file', audioPreview.blob, `audio-${Date.now()}.${extension}`)
+      const { url } = await apiFetch<{ url: string }>('/api/upload/flow-media', {
+        method: 'POST',
+        body: fd,
+        rawBody: true,
+      } as Parameters<typeof apiFetch>[1])
+      const msg = await apiFetch<Message>(`/api/conversations/${selectedId}/send-audio`, {
+        method: 'POST',
+        body: JSON.stringify({ audio_url: url }),
+      })
+      setMessages(prev => [...prev, msg])
+      setConversations(prev => prev.map(c => c.id === selectedId ? { ...c, status: 'human' } : c))
+      resetAudioPreview()
+      fetchConversations()
+    } catch (err) {
+      console.error('[audio] send error:', err)
+      alert('Error al enviar audio')
+    } finally {
+      setUploadingAudio(false)
+    }
   }
 
   async function handleAttachFile(file: File | null) {
@@ -349,6 +456,31 @@ export default function ChatPage() {
     } catch (err) {
       console.error('[chat] status:', err)
       alert(err instanceof Error ? err.message : 'Error al cambiar estado')
+    }
+  }
+
+  async function handleMarkPaid(productId: string) {
+    if (!selected || sending) return
+    setSending(true)
+    try {
+      const result = await apiFetch<{ status: string; amount: number }>(`/api/conversations/${selected.id}/mark-paid`, {
+        method: 'POST',
+        body: JSON.stringify({ product_id: productId }),
+      })
+      setShowPaidPicker(false)
+      setShowActionMenu(false)
+      setConversations(prev => prev.map(c => c.id === selected.id ? {
+        ...c,
+        status: result.status,
+        has_confirmed_sale: true,
+        sale_amount: result.amount,
+      } : c))
+      fetchConversations()
+    } catch (err) {
+      console.error('[chat] mark-paid:', err)
+      alert(err instanceof Error ? err.message : 'Error al registrar pago')
+    } finally {
+      setSending(false)
     }
   }
 
@@ -661,6 +793,53 @@ export default function ChatPage() {
               )}
             </div>
 
+            {(recording || audioPreview) && (
+              <div className="border-t border-white/5 bg-[#141414] px-3 pt-3">
+                <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2">
+                  {recording ? (
+                    <>
+                      <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-red-500" />
+                      <span className="text-xs font-semibold text-red-200">Grabando {fmtDuration(recordingSeconds)}</span>
+                      <button
+                        type="button"
+                        onClick={handleCancelRecording}
+                        className="ml-auto rounded-lg px-2 py-1 text-xs text-gray-400 hover:bg-white/5 hover:text-white"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleStopRecording}
+                        className="rounded-lg bg-emerald-500/15 px-3 py-1 text-xs font-semibold text-emerald-200 hover:bg-emerald-500/25"
+                      >
+                        Detener
+                      </button>
+                    </>
+                  ) : audioPreview ? (
+                    <>
+                      <audio src={audioPreview.url} controls preload="metadata" className="min-w-0 flex-1" />
+                      <button
+                        type="button"
+                        onClick={resetAudioPreview}
+                        disabled={uploadingAudio}
+                        className="rounded-lg px-2 py-1 text-xs text-gray-400 hover:bg-white/5 hover:text-white disabled:opacity-40"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleSendRecordedAudio}
+                        disabled={uploadingAudio}
+                        className="rounded-lg bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-40"
+                      >
+                        {uploadingAudio ? 'Enviando...' : 'Enviar'}
+                      </button>
+                    </>
+                  ) : null}
+                </div>
+              </div>
+            )}
+
             {/* input */}
             <div className="flex items-end gap-2 border-t border-white/5 bg-[#141414] p-3">
               <textarea
@@ -686,7 +865,70 @@ export default function ChatPage() {
               />
               <div className="relative">
                 <button
-                  onClick={() => setShowComposerFlowPicker(v => !v)}
+                  onClick={() => {
+                    setShowActionMenu(v => !v)
+                    setShowComposerFlowPicker(false)
+                  }}
+                  title="Acciones"
+                  disabled={!selectedId}
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-500/10 text-amber-300 transition hover:bg-amber-500/20 hover:text-white disabled:opacity-40"
+                >
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v.01M12 12v.01M12 18v.01" />
+                  </svg>
+                </button>
+                {showActionMenu && (
+                  <div style={{ background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.08)' }}
+                    className="absolute bottom-full right-0 z-20 mb-2 hidden w-56 overflow-hidden rounded-xl shadow-xl md:block">
+                    <button
+                      type="button"
+                      onClick={() => { setShowPaidPicker(true); setShowActionMenu(false) }}
+                      className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-xs text-amber-200 transition-colors hover:bg-white/5"
+                    >
+                      <span>💰</span>
+                      Marcar pagado
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setShowActionMenu(false); handleStatusChange('human') }}
+                      className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-xs text-sky-200 transition-colors hover:bg-white/5"
+                    >
+                      <span>👤</span>
+                      Atención humana
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setShowActionMenu(false); handleStatusChange('bot') }}
+                      className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-xs text-violet-200 transition-colors hover:bg-white/5"
+                    >
+                      <span>🤖</span>
+                      Activar bot
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setShowActionMenu(false); handleStatusChange('disqualified') }}
+                      className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-xs text-red-200 transition-colors hover:bg-white/5"
+                    >
+                      <span>🚫</span>
+                      Descalificar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setShowActionMenu(false); handleStatusChange('closed') }}
+                      className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-xs text-gray-300 transition-colors hover:bg-white/5"
+                    >
+                      <span>⬜</span>
+                      Cerrar
+                    </button>
+                  </div>
+                )}
+              </div>
+              <div className="relative">
+                <button
+                  onClick={() => {
+                    setShowComposerFlowPicker(v => !v)
+                    setShowActionMenu(false)
+                  }}
                   title="Enviar flujo"
                   disabled={!selectedId}
                   className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-violet-500/10 text-violet-300 transition hover:bg-violet-500/20 hover:text-white disabled:opacity-40"
@@ -725,11 +967,12 @@ export default function ChatPage() {
               <button
                 onClick={recording ? handleStopRecording : handleStartRecording}
                 title={recording ? 'Detener grabación' : 'Grabar audio'}
+                disabled={uploadingAudio || !!audioPreview}
                 className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition-all ${
                   recording
                     ? 'bg-red-500 animate-pulse text-white'
                     : 'bg-white/5 text-gray-400 hover:text-white hover:bg-white/10'
-                }`}
+                } disabled:opacity-40`}
               >
                 {recording ? (
                   <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24">
@@ -940,6 +1183,85 @@ export default function ChatPage() {
                 >
                   <span className={`h-2 w-2 shrink-0 rounded-full ${f.active ? 'bg-emerald-400' : 'bg-gray-600'}`} />
                   <span className="min-w-0 flex-1 truncate">{f.name}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+      {showActionMenu && (
+        <div
+          className="fixed inset-0 z-[80] flex items-end bg-black/60 p-3 md:hidden"
+          onClick={() => setShowActionMenu(false)}
+        >
+          <div
+            style={{ background: '#141421', border: '1px solid rgba(255,255,255,0.10)' }}
+            className="w-full rounded-2xl p-3 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-2 flex items-center justify-between">
+              <p className="text-sm font-semibold text-gray-100">Acciones</p>
+              <button
+                type="button"
+                onClick={() => setShowActionMenu(false)}
+                className="rounded-lg px-2 py-1 text-xs text-gray-500 hover:bg-white/5 hover:text-white"
+              >
+                Cerrar
+              </button>
+            </div>
+            <div className="grid gap-2">
+              <button type="button" onClick={() => { setShowPaidPicker(true); setShowActionMenu(false) }} className="rounded-xl bg-amber-500/10 px-3 py-3 text-left text-sm font-semibold text-amber-200">
+                💰 Marcar pagado
+              </button>
+              <button type="button" onClick={() => { setShowActionMenu(false); handleStatusChange('human') }} className="rounded-xl bg-white/5 px-3 py-3 text-left text-sm text-sky-200">
+                👤 Atención humana
+              </button>
+              <button type="button" onClick={() => { setShowActionMenu(false); handleStatusChange('bot') }} className="rounded-xl bg-white/5 px-3 py-3 text-left text-sm text-violet-200">
+                🤖 Activar bot
+              </button>
+              <button type="button" onClick={() => { setShowActionMenu(false); handleStatusChange('disqualified') }} className="rounded-xl bg-red-500/10 px-3 py-3 text-left text-sm text-red-200">
+                🚫 Descalificar
+              </button>
+              <button type="button" onClick={() => { setShowActionMenu(false); handleStatusChange('closed') }} className="rounded-xl bg-white/5 px-3 py-3 text-left text-sm text-gray-300">
+                ⬜ Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {showPaidPicker && (
+        <div
+          className="fixed inset-0 z-[90] flex items-end justify-center bg-black/65 p-3 md:items-center"
+          onClick={() => setShowPaidPicker(false)}
+        >
+          <div
+            style={{ background: '#141421', border: '1px solid rgba(255,255,255,0.10)' }}
+            className="w-full max-w-md rounded-2xl p-3 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-2 flex items-center justify-between">
+              <p className="text-sm font-semibold text-gray-100">Registrar pago</p>
+              <button
+                type="button"
+                onClick={() => setShowPaidPicker(false)}
+                className="rounded-lg px-2 py-1 text-xs text-gray-500 hover:bg-white/5 hover:text-white"
+              >
+                Cerrar
+              </button>
+            </div>
+            <div className="max-h-[55dvh] overflow-y-auto">
+              {products.length === 0 ? (
+                <p className="py-5 text-center text-xs text-gray-600">No hay productos activos</p>
+              ) : products.map((product) => (
+                <button
+                  key={product.id}
+                  type="button"
+                  onClick={() => handleMarkPaid(product.id)}
+                  disabled={sending}
+                  className="mb-2 flex w-full items-center justify-between gap-3 rounded-xl border border-amber-400/15 bg-amber-500/[0.07] px-3 py-3 text-left text-sm text-gray-100 transition hover:bg-amber-500/12 disabled:opacity-40"
+                >
+                  <span className="min-w-0 flex-1 truncate">{product.name}</span>
+                  <span className="shrink-0 font-semibold text-amber-200">{product.currency ?? 'BOB'} {Number(product.price).toFixed(2)}</span>
                 </button>
               ))}
             </div>
