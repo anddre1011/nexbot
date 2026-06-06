@@ -163,8 +163,13 @@ export default function ChatPage() {
   const cancelRecordingRef = useRef(false)
   const recordingStartedAtRef = useRef<number | null>(null)
   const fileInputRef     = useRef<HTMLInputElement>(null)
+  const selectedIdRef    = useRef<string | null>(null)
 
   const selected = conversations.find((c) => c.id === selectedId) ?? null
+
+  useEffect(() => {
+    selectedIdRef.current = selectedId
+  }, [selectedId])
 
   // ─── carga de conversaciones ────────────────────────────────────────────────
   const fetchConversations = useCallback(async () => {
@@ -419,16 +424,30 @@ export default function ChatPage() {
   // ─── lanzar flujo manualmente ────────────────────────────────────────────────
   async function handleTriggerFlow(flowId: string) {
     if (!selectedId) return
+    const targetId = selectedId
+    setShowFlowPicker(false)
+    setShowComposerFlowPicker(false)
+    setConversations(prev => prev.map(c => c.id === targetId ? { ...c, flow_id: flowId, status: 'bot' } : c))
     try {
-      await apiFetch(`/api/conversations/${selectedId}/trigger-flow`, {
+      await apiFetch(`/api/conversations/${targetId}/trigger-flow`, {
         method: 'POST',
         body: JSON.stringify({ flow_id: flowId }),
       })
-      setShowFlowPicker(false)
-      setShowComposerFlowPicker(false)
-      const latest = await apiFetch<Message[]>(`/api/conversations/${selectedId}/messages`)
+      const latest = await apiFetch<Message[]>(`/api/conversations/${targetId}/messages`)
       setMessages(latest)
       fetchConversations()
+      ;[900, 2200, 4200].forEach((delay) => {
+        window.setTimeout(async () => {
+          if (selectedIdRef.current !== targetId) return
+          try {
+            const next = await apiFetch<Message[]>(`/api/conversations/${targetId}/messages`)
+            setMessages(next)
+            fetchConversations()
+          } catch (err) {
+            console.error('[chat] trigger-flow refresh:', err)
+          }
+        }, delay)
+      })
     } catch (err) {
       console.error('[chat] trigger-flow:', err)
       alert('Error al enviar flujo')

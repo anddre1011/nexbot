@@ -323,7 +323,9 @@ router.post('/:id/messages', async (req, res) => {
 
   if (convErr || !conv) { res.status(404).json({ error: 'Conversation not found' }); return }
 
-  const phone = (conv.contacts as unknown as { phone: string } | null)?.phone
+  const phone = Array.isArray((conv as any).contacts)
+    ? (conv as any).contacts[0]?.phone
+    : (conv as any).contacts?.phone
   if (!phone) { res.status(400).json({ error: 'Contact phone not found' }); return }
 
   const { data: tenant } = await supabase
@@ -371,7 +373,9 @@ router.post('/:id/send-audio', async (req, res) => {
     .single()
 
   if (!conv) { res.status(404).json({ error: 'Conversation not found' }); return }
-  const phone = (conv.contacts as unknown as { phone: string } | null)?.phone
+  const phone = Array.isArray((conv as any).contacts)
+    ? (conv as any).contacts[0]?.phone
+    : (conv as any).contacts?.phone
   if (!phone) { res.status(400).json({ error: 'Contact phone not found' }); return }
 
   const { data: tenant } = await supabase
@@ -472,7 +476,9 @@ router.post('/:id/trigger-flow', async (req, res) => {
     .single()
 
   if (!conv) { res.status(404).json({ error: 'Conversation not found' }); return }
-  const phone = (conv.contacts as unknown as { phone: string } | null)?.phone
+  const phone = Array.isArray((conv as any).contacts)
+    ? (conv as any).contacts[0]?.phone
+    : (conv as any).contacts?.phone
   if (!phone) { res.status(400).json({ error: 'Contact phone not found' }); return }
 
   const { data: tenant } = await supabase
@@ -505,9 +511,12 @@ router.post('/:id/trigger-flow', async (req, res) => {
     .eq('id', conv.contact_id)
     .eq('tenant_id', tenantId)
 
-  await executeWelcomeFlow(flow_id, phone, req.params.id, tenantId, creds)
+  res.json({ ok: true, queued: true })
 
-  res.json({ ok: true })
+  void executeWelcomeFlow(flow_id, phone, req.params.id, tenantId, creds)
+    .catch((err) => {
+      console.error('[conversations/trigger-flow] async flow error:', err?.message ?? err)
+    })
 })
 
 router.post('/:id/mark-paid', async (req, res) => {

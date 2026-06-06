@@ -17,6 +17,19 @@ interface ResolvedCampaign {
   metaAdId: string | null
 }
 
+async function findAutomationCampaignName(tenantId: string, metaAdId: string): Promise<string | null> {
+  const { data } = await supabase
+    .from('automation_campaigns')
+    .select('name')
+    .eq('tenant_id', tenantId)
+    .eq('meta_ad_source_id', metaAdId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  return data?.name ?? null
+}
+
 // Extrae datos de referral del payload de Meta y devuelve el campaign_id en Supabase.
 // Si el ad_id no existe aún, crea la campaña automáticamente.
 export async function resolveCampaign(
@@ -32,19 +45,29 @@ export async function resolveCampaign(
     return { campaignId: null, ctwaClid: null, metaAdId: null }
   }
 
-  const headline  = referral?.headline ?? metaAdId ?? 'Campaña Meta'
+  const automationName = metaAdId ? await findAutomationCampaignName(tenantId, metaAdId) : null
+  const headline  = automationName ?? referral?.headline ?? metaAdId ?? 'Campaña Meta'
   const ctwaClid  = referral?.ctwa_clid ?? null
 
   // Buscar campaña existente por meta_ad_id
   if (metaAdId) {
     const { data: existing } = await supabase
       .from('campaigns')
-      .select('id')
+      .select('id, name')
       .eq('tenant_id', tenantId)
       .eq('meta_ad_id', metaAdId)
-      .single()
+      .maybeSingle()
 
-    if (existing) return { campaignId: existing.id, ctwaClid, metaAdId }
+    if (existing) {
+      if (automationName && existing.name !== automationName) {
+        await supabase
+          .from('campaigns')
+          .update({ name: automationName })
+          .eq('id', existing.id)
+          .eq('tenant_id', tenantId)
+      }
+      return { campaignId: existing.id, ctwaClid, metaAdId }
+    }
   }
 
   // No existe → crear campaña automáticamente

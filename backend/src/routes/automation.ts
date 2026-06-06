@@ -59,7 +59,7 @@ router.post('/campaigns', async (req, res) => {
         tenant_id: tenantId,
         name: campaignName,
         meta_ad_id: metaAdSourceId,
-      }, { onConflict: 'tenant_id,meta_ad_id', ignoreDuplicates: true })
+      }, { onConflict: 'tenant_id,meta_ad_id' })
 
     if (campaignError) {
       console.error('[automation] campaign attribution create error:', campaignError.message)
@@ -79,9 +79,21 @@ router.patch('/campaigns/:id', async (req, res) => {
 
   const { data, error } = await supabase
     .from('automation_campaigns').update(updates).eq('id', req.params.id)
-    .select('id, name, active').single()
+    .select('id, name, active, meta_ad_source_id').single()
 
   if (error) { res.status(500).json({ error: error.message }); return }
+  if (data.meta_ad_source_id) {
+    const tenantId = await getTenantId(res.locals.user.id)
+    if (tenantId) {
+      await supabase
+        .from('campaigns')
+        .upsert({
+          tenant_id: tenantId,
+          name: data.name,
+          meta_ad_id: data.meta_ad_source_id,
+        }, { onConflict: 'tenant_id,meta_ad_id' })
+    }
+  }
   res.json(data)
 })
 

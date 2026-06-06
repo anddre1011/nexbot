@@ -194,7 +194,7 @@ export default function DashboardPage() {
       </Link>
     </div>
 
-    <div className="relative flex-1 overflow-auto p-6 space-y-6">
+    <div className="relative flex-1 overflow-auto p-3 space-y-4 sm:p-6 sm:space-y-6">
         <div className="pointer-events-none fixed right-10 top-24 h-72 w-72 rounded-full bg-violet-600/10 blur-3xl" />
         <div className="pointer-events-none fixed bottom-16 left-72 h-64 w-64 rounded-full bg-emerald-500/10 blur-3xl" />
         {/* Header */}
@@ -326,9 +326,9 @@ export default function DashboardPage() {
                 <p className="text-xs text-gray-600 py-8 text-center">Sin datos de campañas</p>
               ) : leadsByCampaign.map(c => (
                 <div key={c.name} style={{ background: 'rgba(255,255,255,0.03)' }} className="rounded-lg p-2.5">
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-xs font-medium text-gray-300 truncate max-w-[200px]">{c.name}</span>
-                    <div className="flex items-center gap-2 text-[10px]">
+                  <div className="mb-1 flex min-w-0 flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                    <span className="min-w-0 truncate text-xs font-medium text-gray-300 sm:max-w-[220px]">{c.name}</span>
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px]">
                       <span className="text-gray-500">{c.leads} leads</span>
                       <span className="text-emerald-400">{c.conversions} conv.</span>
                       <span className="text-amber-300">{c.rate}</span>
@@ -426,7 +426,9 @@ export default function DashboardPage() {
               {overview?.sales_count ?? 0} total
             </span>
           </div>
-          <SalesWidget />
+          <div className="overflow-x-auto">
+            <SalesWidget />
+          </div>
         </div>
 
         {/* Campaigns table (from original) */}
@@ -443,7 +445,8 @@ export default function DashboardPage() {
           {campaigns.length === 0 ? (
             <div className="flex items-center justify-center py-12 text-sm text-gray-600">Sin campañas registradas</div>
           ) : (
-            <table className="w-full text-sm">
+            <div className="overflow-x-auto">
+            <table className="min-w-[760px] w-full text-sm">
               <thead>
                 <tr style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}
                   className="text-left text-xs font-semibold uppercase tracking-widest text-gray-600">
@@ -474,6 +477,7 @@ export default function DashboardPage() {
                 ))}
               </tbody>
             </table>
+            </div>
           )}
         </div>
       </div>
@@ -551,27 +555,27 @@ function SalesWidget() {
   if (!sales.length) return <div className="px-6 py-8 text-center text-xs text-gray-600">Sin ventas aún — los pagos verificados aparecerán aquí</div>
 
   return (
-    <table className="w-full text-sm">
+    <table className="min-w-[620px] w-full text-sm">
       <thead>
         <tr style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}
           className="text-left text-[10px] font-bold uppercase tracking-widest text-gray-600">
-          <th className="px-6 py-3">Contacto</th>
-          <th className="px-6 py-3">Producto</th>
-          <th className="px-6 py-3">Fecha</th>
-          <th className="px-6 py-3 text-right">Monto</th>
+          <th className="px-4 py-3 sm:px-6">Contacto</th>
+          <th className="px-4 py-3 sm:px-6">Producto</th>
+          <th className="px-4 py-3 sm:px-6">Fecha</th>
+          <th className="px-4 py-3 text-right sm:px-6">Monto</th>
         </tr>
       </thead>
       <tbody>
         {sales.map((s, i) => (
           <tr key={s.id} style={{ borderTop: '1px solid rgba(255,255,255,0.04)', background: i%2===0 ? 'transparent' : 'rgba(255,255,255,0.01)' }}>
-            <td className="px-6 py-3 text-xs text-gray-400 font-mono">
+            <td className="px-4 py-3 text-xs text-gray-400 font-mono sm:px-6">
               {s.contacts?.name ?? s.contacts?.phone ?? '–'}
             </td>
-            <td className="px-6 py-3 font-medium text-gray-200">{s.product}</td>
-            <td className="px-6 py-3 text-xs text-gray-500">
+            <td className="px-4 py-3 font-medium text-gray-200 sm:px-6">{s.product}</td>
+            <td className="px-4 py-3 text-xs text-gray-500 sm:px-6">
               {new Date(s.created_at).toLocaleDateString('es', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' })}
             </td>
-            <td className="px-6 py-3 text-right font-bold text-emerald-400">BOB {Number(s.amount).toFixed(2)}</td>
+            <td className="px-4 py-3 text-right font-bold text-emerald-400 sm:px-6">BOB {Number(s.amount).toFixed(2)}</td>
           </tr>
         ))}
       </tbody>
