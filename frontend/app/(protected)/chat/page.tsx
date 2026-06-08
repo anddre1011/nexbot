@@ -275,8 +275,10 @@ export default function ChatPage() {
       })
       setMessages((prev) => [...prev, msg])
       setInput('')
-      // Reflejar human takeover en estado local
-      setConversations(prev => prev.map(c => c.id === selectedId ? { ...c, status: 'human' } : c))
+      const nextStatus = (msg as any).status
+      setConversations(prev => prev.map(c => c.id === selectedId
+        ? { ...c, status: nextStatus ?? (isConvertedConversation(c) ? 'converted' : 'human') }
+        : c))
       fetchConversations()
     } catch (err) {
       console.error('[chat] send:', err)
@@ -381,7 +383,10 @@ export default function ChatPage() {
         body: JSON.stringify({ audio_url: url }),
       })
       setMessages(prev => [...prev, msg])
-      setConversations(prev => prev.map(c => c.id === selectedId ? { ...c, status: 'human' } : c))
+      const nextStatus = (msg as any).status
+      setConversations(prev => prev.map(c => c.id === selectedId
+        ? { ...c, status: nextStatus ?? (isConvertedConversation(c) ? 'converted' : 'human') }
+        : c))
       resetAudioPreview()
       fetchConversations()
     } catch (err) {
@@ -411,7 +416,10 @@ export default function ChatPage() {
         body: JSON.stringify({ media_url: url, type, filename: uploadFile.name }),
       })
       setMessages(prev => [...prev, msg])
-      setConversations(prev => prev.map(c => c.id === selectedId ? { ...c, status: 'human' } : c))
+      const nextStatus = (msg as any).status
+      setConversations(prev => prev.map(c => c.id === selectedId
+        ? { ...c, status: nextStatus ?? (isConvertedConversation(c) ? 'converted' : 'human') }
+        : c))
       fetchConversations()
     } catch (err) {
       console.error('[chat] media send:', err)
@@ -427,12 +435,17 @@ export default function ChatPage() {
     const targetId = selectedId
     setShowFlowPicker(false)
     setShowComposerFlowPicker(false)
-    setConversations(prev => prev.map(c => c.id === targetId ? { ...c, flow_id: flowId, status: 'bot' } : c))
+    setConversations(prev => prev.map(c => c.id === targetId
+      ? { ...c, flow_id: flowId, status: isConvertedConversation(c) ? 'converted' : 'bot' }
+      : c))
     try {
-      await apiFetch(`/api/conversations/${targetId}/trigger-flow`, {
+      const result = await apiFetch<{ status?: string }>(`/api/conversations/${targetId}/trigger-flow`, {
         method: 'POST',
         body: JSON.stringify({ flow_id: flowId }),
       })
+      if (result.status) {
+        setConversations(prev => prev.map(c => c.id === targetId ? { ...c, status: result.status ?? c.status } : c))
+      }
       const latest = await apiFetch<Message[]>(`/api/conversations/${targetId}/messages`)
       setMessages(latest)
       fetchConversations()

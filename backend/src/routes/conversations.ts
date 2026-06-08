@@ -59,6 +59,57 @@ async function fetchLatestSaleByContact(tenantId: string, contactIds: string[]) 
   return latestSaleByContact
 }
 
+async function hasConfirmedSale(tenantId: string, contactId?: string | null) {
+  if (!contactId) return false
+
+  const { data: contact } = await supabase
+    .from('contacts')
+    .select('kanban_stage')
+    .eq('tenant_id', tenantId)
+    .eq('id', contactId)
+    .maybeSingle()
+
+  if ((contact as any)?.kanban_stage === 'converted') return true
+
+  const { data: sale } = await supabase
+    .from('sales')
+    .select('id')
+    .eq('tenant_id', tenantId)
+    .eq('contact_id', contactId)
+    .eq('status', 'confirmed')
+    .limit(1)
+    .maybeSingle()
+
+  return !!sale
+}
+
+async function applyConversationStatusRespectingSale(
+  conversationId: string,
+  tenantId: string,
+  contactId: string | null | undefined,
+  desiredStatus: string,
+  aiEnabled = false,
+) {
+  const converted = await hasConfirmedSale(tenantId, contactId)
+  const status = converted ? 'converted' : desiredStatus
+
+  await supabase
+    .from('conversations')
+    .update({ status, ai_enabled: converted ? false : aiEnabled })
+    .eq('id', conversationId)
+    .eq('tenant_id', tenantId)
+
+  if (converted && contactId) {
+    await supabase
+      .from('contacts')
+      .update({ kanban_stage: 'converted' })
+      .eq('id', contactId)
+      .eq('tenant_id', tenantId)
+  }
+
+  return status
+}
+
 async function fetchLatestMessagesByConversation(conversationIds: string[]) {
   const lastByConversation = new Map<string, any>()
   const messages: any[] = []
@@ -156,7 +207,9 @@ router.get('/', async (req, res) => {
     const rows = (data ?? []).map((row: any) => {
       const contact = Array.isArray(row.contacts) ? row.contacts[0] : row.contacts
       const campaign = Array.isArray(row.campaigns) ? row.campaigns[0] : row.campaigns
-      const stage = contact?.kanban_stage && kanbanStatuses.has(contact.kanban_stage)
+      const stage = latestSaleByContact.has(row.contact_id)
+        ? 'converted'
+        : contact?.kanban_stage && kanbanStatuses.has(contact.kanban_stage)
         ? contact.kanban_stage
         : row.status
       return {
@@ -213,9 +266,10 @@ router.get('/', async (req, res) => {
     const contact = Array.isArray(row.contacts) ? row.contacts[0] : row.contacts
     const last = lastByConversation.get(row.id)
     const flow = row.flow_id ? flowById.get(row.flow_id) : null
+    const hasConfirmedSale = latestSaleByContact.has(row.contact_id)
     return {
       id: row.id,
-      status: row.status,
+      status: hasConfirmedSale ? 'converted' : row.status,
       campaign_id: row.campaign_id,
       flow_id: row.flow_id,
       flow_name: flow?.name ?? null,
@@ -228,7 +282,7 @@ router.get('/', async (req, res) => {
       last_direction: last?.direction ?? null,
       last_message_at: last?.created_at ?? row.created_at,
       unread_count: unreadByConversation.get(row.id) ?? 0,
-      has_confirmed_sale: latestSaleByContact.has(row.contact_id),
+      has_confirmed_sale: hasConfirmedSale,
       sale_amount: latestSaleByContact.get(row.contact_id) ?? null,
     }
   }).sort((a, b) =>
@@ -348,13 +402,16 @@ router.post('/:id/messages', async (req, res) => {
 
   if (msgErr) { res.status(500).json({ error: msgErr.message }); return }
 
-  // Human takeover: desactivar IA y marcar como atendido por humano
-  await supabase
-    .from('conversations')
-    .update({ status: 'human', ai_enabled: false })
-    .eq('id', req.params.id)
+  // Human takeover: si ya compro, mantenerlo como convertido.
+  const status = await applyConversationStatusRespectingSale(
+    req.params.id,
+    tenantId,
+    (conv as any).contact_id,
+    'human',
+    false,
+  )
 
-  res.status(201).json({ ...msg, status: 'human' })
+  res.status(201).json({ ...msg, status })
 })
 
 // ─── POST /api/conversations/:id/send-audio — enviar audio grabado ────────────
@@ -395,12 +452,15 @@ router.post('/:id/send-audio', async (req, res) => {
     .single()
 
   // Human takeover al enviar audio manual también
-  await supabase
-    .from('conversations')
-    .update({ status: 'human', ai_enabled: false })
-    .eq('id', req.params.id)
+  const status = await applyConversationStatusRespectingSale(
+    req.params.id,
+    tenantId,
+    (conv as any).contact_id,
+    'human',
+    false,
+  )
 
-  res.status(201).json({ ...msg, status: 'human' })
+  res.status(201).json({ ...msg, status })
 })
 
 // ─── POST /api/conversations/:id/trigger-flow — lanzar flujo manualmente ─────
@@ -447,12 +507,15 @@ router.post('/:id/send-media', async (req, res) => {
 
     if (msgErr) { res.status(500).json({ error: msgErr.message }); return }
 
-    await supabase
-      .from('conversations')
-      .update({ status: 'human', ai_enabled: false })
-      .eq('id', req.params.id)
+    const status = await applyConversationStatusRespectingSale(
+      req.params.id,
+      tenantId,
+      (conv as any).contact_id,
+      'human',
+      false,
+    )
 
-    res.status(201).json({ ...msg, status: 'human' })
+    res.status(201).json({ ...msg, status })
   } catch (err: any) {
     const metaError = err?.response?.data?.error?.message || err?.response?.data?.error
     const message = metaError || err?.message || 'Error al enviar archivo'
@@ -498,20 +561,26 @@ router.post('/:id/trigger-flow', async (req, res) => {
 
   if (!flow) { res.status(404).json({ error: 'Flow not found' }); return }
   const agentEnabled = isFlowAgentEnabled(flow as { tags?: string[] | null })
+  const converted = await hasConfirmedSale(tenantId, (conv as any).contact_id)
 
   // Vincular flujo a la conversación y ejecutar steps de bienvenida
   await supabase
     .from('conversations')
-    .update({ flow_id, flow_step: 0, ai_enabled: agentEnabled, status: agentEnabled ? 'bot' : 'open' })
+    .update({
+      flow_id,
+      flow_step: 0,
+      ai_enabled: converted ? false : agentEnabled,
+      status: converted ? 'converted' : agentEnabled ? 'bot' : 'open',
+    })
     .eq('id', req.params.id)
 
   await supabase
     .from('contacts')
-    .update({ kanban_stage: 'open' })
+    .update({ kanban_stage: converted ? 'converted' : 'open' })
     .eq('id', conv.contact_id)
     .eq('tenant_id', tenantId)
 
-  res.json({ ok: true, queued: true })
+  res.json({ ok: true, queued: true, status: converted ? 'converted' : agentEnabled ? 'bot' : 'open' })
 
   void executeWelcomeFlow(flow_id, phone, req.params.id, tenantId, creds)
     .catch((err) => {
@@ -656,6 +725,23 @@ router.patch('/:id/status', async (req, res) => {
       res.status(400).json({ error: 'Solo se puede marcar como convertido cuando existe una venta confirmada.' })
       return
     }
+  }
+
+  if (status !== 'converted' && await hasConfirmedSale(tenantId, conv.contact_id)) {
+    await Promise.all([
+      supabase
+        .from('conversations')
+        .update({ status: 'converted', ai_enabled: false })
+        .eq('id', req.params.id)
+        .eq('tenant_id', tenantId),
+      supabase
+        .from('contacts')
+        .update({ kanban_stage: 'converted' })
+        .eq('id', conv.contact_id)
+        .eq('tenant_id', tenantId),
+    ])
+    res.json({ id: req.params.id, status: 'converted' })
+    return
   }
 
   const updates: Record<string, unknown> = { status }

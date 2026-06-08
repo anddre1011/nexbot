@@ -77,6 +77,19 @@ function shouldDisqualifyFromInbound(text: string | null | undefined) {
 }
 
 // ─── Verificación de webhook Meta ────────────────────────────────────────────
+async function contactHasConfirmedSale(tenantId: string, contactId: string) {
+  const { data: sale } = await supabase
+    .from('sales')
+    .select('id')
+    .eq('tenant_id', tenantId)
+    .eq('contact_id', contactId)
+    .eq('status', 'confirmed')
+    .limit(1)
+    .maybeSingle()
+
+  return !!sale
+}
+
 router.get('/webhook', (req, res) => {
   const mode      = req.query['hub.mode']
   const token     = req.query['hub.verify_token']
@@ -292,6 +305,26 @@ async function processMessage(params: {
     .from('contacts')
     .update({ last_message_at: new Date().toISOString() })
     .eq('id', contact.id)
+
+  const convertedBuyer =
+    (contact as { kanban_stage?: string | null }).kanban_stage === 'converted' ||
+    await contactHasConfirmedSale(tenantId, contact.id)
+
+  if (convertedBuyer) {
+    await Promise.all([
+      supabase
+        .from('conversations')
+        .update({ status: 'converted', ai_enabled: false })
+        .eq('id', conversation.id),
+      supabase
+        .from('contacts')
+        .update({ kanban_stage: 'converted' })
+        .eq('id', contact.id),
+      clearInactivityTimers(conversation.id),
+    ])
+    console.log(`[webhook] Contact ${contact.id} already converted, preserving paid status and skipping bot reply`)
+    return
+  }
 
   // 6b. Detectar palabra clave y asignar flujo correspondiente
   type FlowInfo = { id: string; name: string; type: string; model: string; system_prompt: string | null; tags?: string[] | null }

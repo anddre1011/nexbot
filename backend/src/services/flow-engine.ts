@@ -234,7 +234,7 @@ export async function executeConversionFlow(
     if (conv.disable_ai) {
       await supabase
         .from('conversations')
-        .update({ ai_enabled: false, status: 'closed' })
+        .update({ ai_enabled: false, status: 'converted' })
         .eq('id', conversationId)
     }
 
