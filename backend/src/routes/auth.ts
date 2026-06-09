@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import { supabase } from '../services/supabase'
+import { ensureTenantForUser } from '../services/tenants'
 
 const router = Router()
 
@@ -17,6 +18,10 @@ router.post('/register', async (req, res) => {
   if (error) {
     res.status(400).json({ error: error.message })
     return
+  }
+
+  if (data.user) {
+    await ensureTenantForUser(data.user)
   }
 
   res.status(201).json({ user: data.user })

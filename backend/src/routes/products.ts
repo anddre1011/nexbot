@@ -1,22 +1,16 @@
 import { Router } from 'express'
 import { requireAuth } from '../middlewares/auth'
 import { supabase } from '../services/supabase'
+import { ensureTenantForUser } from '../services/tenants'
 
 const router = Router()
 router.use(requireAuth)
 
 const VALID_TYPES = ['infoproduct', 'digital', 'physical', 'other'] as const
 
-async function getTenantId(userId: string): Promise<string | null> {
-  const { data } = await supabase
-    .from('tenants').select('id').eq('user_id', userId).eq('active', true).single()
-  return data?.id ?? null
-}
-
 // ─── GET /api/products ────────────────────────────────────────────────────────
 router.get('/', async (_req, res) => {
-  const tenantId = await getTenantId(res.locals.user.id)
-  if (!tenantId) { res.status(404).json({ error: 'Tenant not found' }); return }
+  const tenantId = await ensureTenantForUser(res.locals.user)
 
   const { data, error } = await supabase
     .from('products')
@@ -39,8 +33,7 @@ router.get('/', async (_req, res) => {
 
 // ─── POST /api/products ───────────────────────────────────────────────────────
 router.post('/', async (req, res) => {
-  const tenantId = await getTenantId(res.locals.user.id)
-  if (!tenantId) { res.status(404).json({ error: 'Tenant not found' }); return }
+  const tenantId = await ensureTenantForUser(res.locals.user)
 
   const { name, type, price, currency, banner_url, description, delivery_url, folder, upsell_id, downsell_id } = req.body
 
