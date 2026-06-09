@@ -231,6 +231,11 @@ async function processMessage(params: {
     phoneNumberId: (tenantData as any)?.phone_number_id || null,
   }
 
+  if (type === 'reaction') {
+    console.log(`[webhook] Reaction ignored for ${from}`)
+    return
+  }
+
   // 1. Upsert contacto
   const contact = await upsertContact(from, tenantId)
   await captureCtwaAttribution(contact.id, raw)
@@ -323,6 +328,13 @@ async function processMessage(params: {
       clearInactivityTimers(conversation.id),
     ])
     console.log(`[webhook] Contact ${contact.id} already converted, preserving paid status and skipping bot reply`)
+    return
+  }
+
+  if (type === 'document') {
+    const msg = 'Amigo, me llegó como archivo/PDF y para verificar el pago necesito captura de pantalla o foto del comprobante donde se vea monto y fecha. Mándamela por aquí y te activo al tiro.'
+    await sendTextMessage(from, msg, creds)
+    await saveOutbound(conversation.id, 'text', msg)
     return
   }
 

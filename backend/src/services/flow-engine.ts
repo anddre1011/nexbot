@@ -305,14 +305,15 @@ export async function resolveMediaTags(
 ): Promise<{
   parts: Array<{ type: 'text' | 'image' | 'video' | 'audio'; content: string }>
 }> {
+  const normalizedText = closeDanglingMediaTags(text)
   const regex = /\{\{\s*media:\s*([^}]+?)\s*\}\}/g
   const parts: Array<{ type: 'text' | 'image' | 'video' | 'audio'; content: string }> = []
 
   let lastIndex = 0
-  const matches = [...text.matchAll(regex)]
+  const matches = [...normalizedText.matchAll(regex)]
 
   for (const match of matches) {
-    const before = text.slice(lastIndex, match.index).trim()
+    const before = normalizedText.slice(lastIndex, match.index).trim()
     if (before) parts.push({ type: 'text', content: before })
 
     const varName = match[1]
@@ -334,14 +335,18 @@ export async function resolveMediaTags(
     lastIndex = (match.index ?? 0) + match[0].length
   }
 
-  const after = text.slice(lastIndex).trim()
+  const after = normalizedText.slice(lastIndex).trim()
   if (after) parts.push({ type: 'text', content: after })
 
-  if (parts.length === 0 && text.trim()) {
-    parts.push({ type: 'text', content: text.trim() })
+  if (parts.length === 0 && normalizedText.trim()) {
+    parts.push({ type: 'text', content: normalizedText.trim() })
   }
 
   return { parts }
+}
+
+function closeDanglingMediaTags(text: string): string {
+  return text.replace(/\{\{\s*media:\s*([a-zA-Z0-9_-]+)\s*$/g, '{{media:$1}}')
 }
 
 // ─── Buscar flujo activo de un tenant ─────────────────────────────────────────
