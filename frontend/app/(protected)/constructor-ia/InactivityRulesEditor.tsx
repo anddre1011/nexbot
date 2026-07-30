@@ -37,6 +37,7 @@ export default function InactivityRulesEditor({ rules, onChange }: {
   rules: InactRule[]; onChange: (r: InactRule[]) => void
 }) {
   const [uploading, setUploading] = useState<string | null>(null)
+  const [copied, setCopied] = useState<string | null>(null)
 
   function addRule() {
     onChange([...rules, {
@@ -68,6 +69,13 @@ export default function InactivityRulesEditor({ rules, onChange }: {
       console.error('[upload]', err)
       alert('Error al subir. Verifica el bucket "media" en Supabase Storage.')
     } finally { setUploading(null) }
+  }
+
+  function copyText(id: string, text: string | null) {
+    if (!text?.trim()) return
+    navigator.clipboard.writeText(text)
+    setCopied(id)
+    setTimeout(() => setCopied(null), 2000)
   }
 
   return (
@@ -135,10 +143,17 @@ export default function InactivityRulesEditor({ rules, onChange }: {
 
             {/* Texto */}
             {rule.type === 'text' && (
-              <textarea rows={2} value={rule.content ?? ''}
-                onChange={e => update(idx, { content: e.target.value })}
-                placeholder="Mensaje de seguimiento..."
-                className="modal-input resize-none text-xs w-full" />
+              <div className="space-y-1.5">
+                <textarea rows={3} value={rule.content ?? ''}
+                  onChange={e => update(idx, { content: e.target.value })}
+                  placeholder="Mensaje de seguimiento..."
+                  className="modal-input min-h-[92px] resize-y text-xs w-full leading-relaxed" />
+                <button type="button"
+                  onClick={() => copyText(`text:${rule.id}`, rule.content)}
+                  className="rounded-lg px-2 py-1 text-[10px] text-gray-400 hover:text-white hover:bg-white/10 transition-colors">
+                  {copied === `text:${rule.id}` ? 'Copiado' : 'Copiar texto'}
+                </button>
+              </div>
             )}
 
             {/* Variable media */}
@@ -176,9 +191,17 @@ export default function InactivityRulesEditor({ rules, onChange }: {
                   </label>
                 )}
                 {rule.type !== 'document' && (
-                  <input value={rule.content ?? ''} onChange={e => update(idx, { content: e.target.value })}
-                    placeholder="Caption (opcional)"
-                    className="modal-input text-xs" />
+                  <div className="space-y-1.5">
+                    <textarea value={rule.content ?? ''} onChange={e => update(idx, { content: e.target.value })}
+                      rows={2}
+                      placeholder="Caption (opcional)"
+                      className="modal-input min-h-[72px] resize-y text-xs leading-relaxed" />
+                    <button type="button"
+                      onClick={() => copyText(`caption:${rule.id}`, rule.content)}
+                      className="rounded-lg px-2 py-1 text-[10px] text-gray-400 hover:text-white hover:bg-white/10 transition-colors">
+                      {copied === `caption:${rule.id}` ? 'Copiado' : 'Copiar caption'}
+                    </button>
+                  </div>
                 )}
               </div>
             )}

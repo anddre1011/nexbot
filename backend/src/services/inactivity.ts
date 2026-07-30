@@ -42,6 +42,9 @@ const WORKER_INTERVAL_MS = parseInt(process.env.INACTIVITY_WORKER_INTERVAL_MS ??
 const MAX_JOBS_PER_TICK = parseInt(process.env.INACTIVITY_MAX_JOBS_PER_TICK ?? '25')
 const BUSINESS_DAY_KEYS = ['domingo', 'lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado'] as const
 const BOLIVIA_OFFSET_MS = 4 * 60 * 60 * 1000
+const DEFAULT_BUSINESS_HOURS: BusinessHours = Object.fromEntries(
+  BUSINESS_DAY_KEYS.map((key) => [key, { start: '06:00', end: '23:00', enabled: true }])
+) as BusinessHours
 
 let workerStarted = false
 
@@ -304,8 +307,9 @@ async function processInactivityJob(job: ScheduledInactivityJob) {
     }
 
     const businessHours = await getTenantBusinessHours(job.tenant_id)
-    const allowedAtMs = nextBusinessTimeMs(Date.now(), businessHours)
-    if (allowedAtMs > Date.now() + 30000) {
+    const nowMs = Date.now()
+    const allowedAtMs = nextBusinessTimeMs(nowMs, businessHours)
+    if (allowedAtMs > nowMs + 1000) {
       await postponeClaimedJob(job.id, allowedAtMs)
       return
     }
@@ -527,17 +531,35 @@ async function getTenantBusinessHours(tenantId: string): Promise<BusinessHours |
     return null
   }
 
-  return ((data as any)?.business_hours ?? null) as BusinessHours | null
+  return normalizeBusinessHours((data as any)?.business_hours)
+}
+
+function normalizeBusinessHours(value: unknown): BusinessHours {
+  const input = value && typeof value === 'object' ? value as BusinessHours : {}
+  const normalized: BusinessHours = { ...DEFAULT_BUSINESS_HOURS }
+
+  for (const key of BUSINESS_DAY_KEYS) {
+    const config = input[key]
+    normalized[key] = {
+      start: config?.start || DEFAULT_BUSINESS_HOURS[key].start,
+      end: config?.end || DEFAULT_BUSINESS_HOURS[key].end,
+      enabled: typeof config?.enabled === 'boolean'
+        ? config.enabled
+        : DEFAULT_BUSINESS_HOURS[key].enabled,
+    }
+  }
+
+  return normalized
 }
 
 function nextBusinessTimeMs(targetMs: number, hours: BusinessHours | null) {
-  if (!hours) return targetMs
+  const schedule = normalizeBusinessHours(hours)
 
   let cursorMs = targetMs
   for (let i = 0; i < 8; i++) {
     const local = toBoliviaLocal(cursorMs)
     const key = BUSINESS_DAY_KEYS[local.day]
-    const config = hours[key]
+    const config = schedule[key]
 
     if (!config?.enabled) {
       cursorMs = boliviaLocalToUtcMs(local.year, local.month, local.date + 1, 0, 0)

@@ -5,6 +5,7 @@ import {
   sendVideoMessage,
   sendAudioMessage,
   sendDocumentMessage,
+  sendTypingIndicator,
   type TenantCredentials,
 } from './whatsapp'
 import { propagateCampaignToSale } from './campaigns'
@@ -61,6 +62,7 @@ export async function executeWelcomeFlow(
   conversationId: string,
   tenantId: string,
   creds?: TenantCredentials,
+  typingMessageId?: string | null,
 ): Promise<void> {
   const { data: steps } = await supabase
     .from('flow_steps')
@@ -76,6 +78,7 @@ export async function executeWelcomeFlow(
         case 'text':
           if (step.content) {
             const resolvedText = await resolveMediaVars(step.content, tenantId)
+            await showTyping(typingMessageId, creds)
             await sendTextMessage(contactPhone, resolvedText, creds)
             await saveOutbound(conversationId, 'text', resolvedText)
             await paceAfterSend()
@@ -84,6 +87,7 @@ export async function executeWelcomeFlow(
 
         case 'image':
           if (step.media_url) {
+            await showTyping(typingMessageId, creds)
             await sendImageMessage(contactPhone, step.media_url, step.content ?? undefined, creds)
             await saveOutbound(conversationId, 'image', step.media_url)
             await paceAfterSend()
@@ -92,6 +96,7 @@ export async function executeWelcomeFlow(
 
         case 'video':
           if (step.media_url) {
+            await showTyping(typingMessageId, creds)
             await sendVideoMessage(contactPhone, step.media_url, step.content ?? undefined, creds)
             await saveOutbound(conversationId, 'video', step.media_url)
             await paceAfterSend()
@@ -100,6 +105,7 @@ export async function executeWelcomeFlow(
 
         case 'audio':
           if (step.media_url) {
+            await showTyping(typingMessageId, creds)
             await sendAudioMessage(contactPhone, step.media_url, creds)
             await saveOutbound(conversationId, 'audio', step.media_url)
             await paceAfterSend()
@@ -108,6 +114,7 @@ export async function executeWelcomeFlow(
 
         case 'file':
           if (step.media_url) {
+            await showTyping(typingMessageId, creds)
             await sendDocumentMessage(contactPhone, step.media_url, step.content ?? 'archivo', creds)
             await saveOutbound(conversationId, 'document', step.media_url)
             await paceAfterSend()
@@ -115,7 +122,7 @@ export async function executeWelcomeFlow(
           break
 
         case 'delay':
-          await sleep(step.delay_ms ?? 2000)
+          await sleepWithTyping(step.delay_ms ?? 2000, typingMessageId, creds)
           break
 
         case 'wait_response':
@@ -447,6 +454,25 @@ function sleep(ms: number): Promise<void> {
 
 async function paceAfterSend() {
   await sleep(FLOW_STEP_PACE_MS)
+}
+
+async function showTyping(messageId?: string | null, creds?: TenantCredentials) {
+  if (!messageId) return
+  await sendTypingIndicator(messageId, creds)
+}
+
+async function sleepWithTyping(ms: number, messageId?: string | null, creds?: TenantCredentials) {
+  const safeMs = Math.max(0, ms)
+  if (!messageId || safeMs === 0) {
+    await sleep(safeMs)
+    return
+  }
+
+  const endAt = Date.now() + safeMs
+  while (Date.now() < endAt) {
+    await showTyping(messageId, creds)
+    await sleep(Math.min(18000, Math.max(0, endAt - Date.now())))
+  }
 }
 
 async function saveOutbound(conversationId: string, type: string, content: string) {

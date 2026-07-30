@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import OpenAI, { toFile } from 'openai'
 import { supabase } from '../services/supabase'
-import { sendTextMessage, sendMediaByType, downloadMediaAsDataUrl, downloadMediaBuffer } from '../services/whatsapp'
+import { sendTextMessage, sendMediaByType, downloadMediaAsDataUrl, downloadMediaBuffer, sendTypingIndicator } from '../services/whatsapp'
 import { resetInactivityTimers, clearInactivityTimers } from '../services/inactivity'
 import { resolveCampaign, linkConversationToCampaign, propagateCampaignToSale } from '../services/campaigns'
 import {
@@ -223,6 +223,7 @@ async function processMessage(params: {
   tenantId: string
 }) {
   const { from, type, raw, tenantId } = params
+  const inboundMessageId = typeof raw.id === 'string' ? raw.id : null
 
   // Obtener credenciales Meta del tenant para todos los envíos
   const tenantData = await getTenant(tenantId)
@@ -271,7 +272,7 @@ async function processMessage(params: {
         .eq('id', adFlow.automation_campaign_id)
 
       console.log(`[webhook] Meta ad ${metaAdId} -> executing flow "${adFlow.name}"`)
-      await executeWelcomeFlow(adFlow.id, from, conversation.id, tenantId, creds)
+      await executeWelcomeFlow(adFlow.id, from, conversation.id, tenantId, creds, inboundMessageId)
       return
     }
   }
@@ -333,6 +334,7 @@ async function processMessage(params: {
 
   if (type === 'document') {
     const msg = 'Amigo, me llegó como archivo/PDF y para verificar el pago necesito captura de pantalla o foto del comprobante donde se vea monto y fecha. Mándamela por aquí y te activo al tiro.'
+    await sendTypingIndicator(inboundMessageId, creds)
     await sendTextMessage(from, msg, creds)
     await saveOutbound(conversation.id, 'text', msg)
     return
@@ -378,7 +380,7 @@ async function processMessage(params: {
             .eq('id', conversation.id)
           
           console.log(`[webhook] Keyword "${matched.keyword}" → executing flow "${(matched.flows as any)?.name}"`)
-          await executeWelcomeFlow(matched.flow_id, from, conversation.id, tenantId, creds)
+          await executeWelcomeFlow(matched.flow_id, from, conversation.id, tenantId, creds, inboundMessageId)
           return  // El flujo inicial ya respondió
         }
       }
@@ -418,7 +420,7 @@ async function processMessage(params: {
       .eq('id', conversation.id)
 
     // Ejecutar secuencia de bienvenida
-    await executeWelcomeFlow(activeFlow.id, from, conversation.id, tenantId, creds)
+    await executeWelcomeFlow(activeFlow.id, from, conversation.id, tenantId, creds, inboundMessageId)
 
     // Incrementar ejecuciones del flujo
     try {
@@ -481,22 +483,30 @@ async function processMessage(params: {
   let replyText: string
 
   if (type === 'image') {
-    replyText = await handleImage(
-      raw, contact.id, tenantId, conversation.id, from, creds,
-      activeFlow?.system_prompt ?? undefined,
-      (contact as any)?.name ?? null,
-      activeFlow?.id,
+    replyText = await withTypingPulse(
+      inboundMessageId,
+      creds,
+      () => handleImage(
+        raw, contact.id, tenantId, conversation.id, from, creds,
+        activeFlow?.system_prompt ?? undefined,
+        (contact as any)?.name ?? null,
+        activeFlow?.id,
+      ),
     )
   } else {
     // Audio (ya transcrito) y texto pasan igual por la IA
-    replyText = await handleText(
-      inboundContent ?? '',
-      conversation.id,
-      tenantId,
-      activeFlow?.system_prompt ?? undefined,
-      (activeFlow as any)?.model ?? 'gpt-4o',
-      (contact as any)?.name ?? null,
-      from
+    replyText = await withTypingPulse(
+      inboundMessageId,
+      creds,
+      () => handleText(
+        inboundContent ?? '',
+        conversation.id,
+        tenantId,
+        activeFlow?.system_prompt ?? undefined,
+        (activeFlow as any)?.model ?? 'gpt-4o',
+        (contact as any)?.name ?? null,
+        from
+      ),
     )
   }
 
@@ -558,10 +568,12 @@ async function processMessage(params: {
     for (const part of parts) {
       if (part.type === 'text') {
         if (part.content.trim()) {  // nunca enviar texto vacío
+          await sendTypingIndicator(inboundMessageId, creds)
           await sendTextMessage(from, part.content, creds)
           await saveOutbound(conversation.id, 'text', part.content)
         }
       } else if (part.content.trim()) {
+        await sendTypingIndicator(inboundMessageId, creds)
         await sendMediaByType(from, part.type, part.content, undefined, creds)
         await saveOutbound(conversation.id, part.type, part.content)
       }
@@ -570,6 +582,7 @@ async function processMessage(params: {
     // Mensaje de texto simple — solo enviar si no está vacío
     const finalText = (parts[0]?.content || cleaned || replyText || '').trim()
     if (finalText) {
+      await sendTypingIndicator(inboundMessageId, creds)
       await sendTextMessage(from, finalText, creds)
       await saveOutbound(conversation.id, 'text', finalText)
     } else {
@@ -578,6 +591,25 @@ async function processMessage(params: {
   }
 
   // 7f. (Eliminado: handoff automático por texto, ahora se usa {{function:call_attendant}})
+}
+
+async function withTypingPulse<T>(
+  messageId: string | null,
+  creds: { metaToken: string | null; phoneNumberId: string | null },
+  work: () => Promise<T>,
+): Promise<T> {
+  if (!messageId) return work()
+
+  await sendTypingIndicator(messageId, creds)
+  const pulse = setInterval(() => {
+    void sendTypingIndicator(messageId, creds)
+  }, 18000)
+
+  try {
+    return await work()
+  } finally {
+    clearInterval(pulse)
+  }
 }
 
 async function persistInboundMedia(

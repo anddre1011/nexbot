@@ -27,7 +27,7 @@ interface DayConfig {
 type BusinessHours = Record<string, DayConfig>
 
 const DEFAULT_HOURS: BusinessHours = Object.fromEntries(
-  DAYS.map(d => [d.key, { start: '06:00', end: '23:00', enabled: d.key !== 'domingo' }])
+  DAYS.map(d => [d.key, { start: '06:00', end: '23:00', enabled: true }])
 )
 
 export default function HorariosPage() {

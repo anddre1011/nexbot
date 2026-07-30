@@ -13,6 +13,34 @@ function makeHeaders(token: string) {
   return { Authorization: `Bearer ${token}` }
 }
 
+export async function sendTypingIndicator(
+  inboundMessageId?: string | null,
+  creds?: TenantCredentials,
+) {
+  if (!inboundMessageId) return false
+
+  const { token, phoneId } = resolveCredentials(creds?.metaToken, creds?.phoneNumberId)
+  if (!token || !phoneId) return false
+
+  try {
+    await axios.post(
+      `${BASE_URL}/${phoneId}/messages`,
+      {
+        messaging_product: 'whatsapp',
+        status: 'read',
+        message_id: inboundMessageId,
+        typing_indicator: { type: 'text' },
+      },
+      { headers: makeHeaders(token) },
+    )
+    return true
+  } catch (err: any) {
+    const message = err?.response?.data?.error?.message || err?.message || 'unknown'
+    console.warn(`[whatsapp] typing indicator skipped: ${message}`)
+    return false
+  }
+}
+
 function ensureClickableUrl(value: string) {
   if (/^https?:\/\//i.test(value)) return value
   return `https://${value}`

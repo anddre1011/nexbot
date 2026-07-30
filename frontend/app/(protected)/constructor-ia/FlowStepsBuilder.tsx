@@ -85,6 +85,13 @@ export default function FlowStepsBuilder({
     setTimeout(() => setCopied(null), 2000)
   }
 
+  function copyText(id: string, text: string | null) {
+    if (!text?.trim()) return
+    navigator.clipboard.writeText(text)
+    setCopied(id)
+    setTimeout(() => setCopied(null), 2000)
+  }
+
   // Drag & drop reorder
   function onDragStart(idx: number) { setDragIdx(idx) }
   function onDragOver(e: React.DragEvent) { e.preventDefault() }
@@ -106,8 +113,7 @@ export default function FlowStepsBuilder({
 
       <div className="flex flex-col gap-2 mb-2">
         {steps.map((step, idx) => (
-          <div key={step.id} draggable
-            onDragStart={() => onDragStart(idx)}
+          <div key={step.id}
             onDragOver={onDragOver}
             onDrop={() => onDrop(idx)}
             style={{
@@ -118,7 +124,9 @@ export default function FlowStepsBuilder({
             className="rounded-xl p-3 transition-opacity">
 
             {/* Header */}
-            <div className="flex items-center gap-2 mb-2 cursor-grab active:cursor-grabbing">
+            <div draggable
+              onDragStart={() => onDragStart(idx)}
+              className="flex items-center gap-2 mb-2 cursor-grab active:cursor-grabbing">
               <span className="text-gray-600 select-none text-sm">⠿</span>
               <span>{STEP_TYPES.find(t => t.type === step.type)?.icon}</span>
               <span className="text-xs font-semibold text-gray-300">
@@ -135,10 +143,18 @@ export default function FlowStepsBuilder({
 
             {/* Texto */}
             {step.type === 'text' && (
-              <textarea rows={2} value={step.content ?? ''}
-                onChange={e => update(idx, { content: e.target.value })}
-                placeholder="Escribe tu mensaje..."
-                className="modal-input resize-none text-xs w-full" />
+              <div className="space-y-1.5">
+                <textarea rows={3} value={step.content ?? ''}
+                  draggable={false}
+                  onChange={e => update(idx, { content: e.target.value })}
+                  placeholder="Escribe tu mensaje..."
+                  className="modal-input min-h-[92px] resize-y text-xs w-full leading-relaxed" />
+                <button type="button"
+                  onClick={() => copyText(`text:${step.id}`, step.content)}
+                  className="rounded-lg px-2 py-1 text-[10px] text-gray-400 hover:text-white hover:bg-white/10 transition-colors">
+                  {copied === `text:${step.id}` ? 'Copiado' : 'Copiar texto'}
+                </button>
+              </div>
             )}
 
             {/* Delay */}
@@ -231,10 +247,19 @@ export default function FlowStepsBuilder({
 
                 {/* Caption para imagen/video */}
                 {(step.type === 'image' || step.type === 'video') && (
-                  <input value={step.content ?? ''}
-                    onChange={e => update(idx, { content: e.target.value })}
-                    placeholder="Caption (opcional)"
-                    className="modal-input text-xs" />
+                  <div className="space-y-1.5">
+                    <textarea value={step.content ?? ''}
+                      rows={2}
+                      draggable={false}
+                      onChange={e => update(idx, { content: e.target.value })}
+                      placeholder="Caption (opcional)"
+                      className="modal-input min-h-[72px] resize-y text-xs leading-relaxed" />
+                    <button type="button"
+                      onClick={() => copyText(`caption:${step.id}`, step.content)}
+                      className="rounded-lg px-2 py-1 text-[10px] text-gray-400 hover:text-white hover:bg-white/10 transition-colors">
+                      {copied === `caption:${step.id}` ? 'Copiado' : 'Copiar caption'}
+                    </button>
+                  </div>
                 )}
               </div>
             )}
