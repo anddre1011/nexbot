@@ -38,13 +38,14 @@ type CapiSettings = {
   dataset_id: string
   token: string
   test_event_code: string | null
+  waba_id: string | null
 }
 
 // ─── Leer y desencriptar la configuración CAPI del tenant ─────────────────────
 async function getCapiSettings(tenantId: string): Promise<CapiSettings | null> {
   const { data, error } = await supabase
     .from('tenant_meta_settings')
-    .select('capi_dataset_id, capi_token_encrypted, capi_test_event_code, capi_status')
+    .select('capi_dataset_id, capi_token_encrypted, capi_test_event_code, capi_status, waba_id')
     .eq('tenant_id', tenantId)
     .eq('is_active', true)
     .maybeSingle()
@@ -74,6 +75,7 @@ async function getCapiSettings(tenantId: string): Promise<CapiSettings | null> {
     dataset_id: data.capi_dataset_id,
     token,
     test_event_code: data.capi_test_event_code ?? null,
+    waba_id: data.waba_id ?? null,
   }
 }
 
@@ -199,6 +201,22 @@ export async function sendConversion(conversionId: string): Promise<boolean> {
     return false
   }
 
+  if (!settings.waba_id?.trim()) {
+    await supabase
+      .from('conversions')
+      .update({
+        status: 'failed',
+        attempts: (conv.attempts ?? 0) + 1,
+        last_attempt_at: new Date().toISOString(),
+        meta_response: {
+          error: 'CAPI no enviado: falta waba_id / whatsapp_business_account_id para business_messaging',
+        },
+      })
+      .eq('id', conversionId)
+    logger.warn('[capi] tenant has no WABA ID for business messaging', { tenantId: conv.tenant_id, conversionId })
+    return false
+  }
+
   await supabase.from('conversions').update({ status: 'sending' }).eq('id', conversionId)
 
   // Payload según spec de Conversions API for Business Messaging
@@ -210,6 +228,7 @@ export async function sendConversion(conversionId: string): Promise<boolean> {
     messaging_channel: 'whatsapp',
     user_data: {
       ctwa_clid: conv.ctwa_clid,
+      whatsapp_business_account_id: settings.waba_id,
     },
   }
 
