@@ -19,7 +19,9 @@ import billingRoutes       from './routes/billing'
 import mediaRoutes         from './routes/media'
 import uploadRoutes        from './routes/upload'
 import notificationsRoutes from './routes/notifications'
+import conversionsRoutes   from './routes/conversions'
 import { startInactivityWorker } from './services/inactivity'
+import { startCapiRetryWorker } from './services/capi.service'
 
 const app = express()
 const PORT = process.env.PORT ?? 3001
@@ -55,10 +57,12 @@ app.use('/api/billing',      billingRoutes)
 app.use('/api/media',         mediaRoutes)
 app.use('/api/upload',        uploadRoutes)
 app.use('/api/notifications', notificationsRoutes)
+app.use('/api/conversions',   conversionsRoutes)
 
 app.listen(PORT, async () => {
   console.log(`NexBot backend running on http://localhost:${PORT}`)
   startInactivityWorker()
+  startCapiRetryWorker()
 
   // Crear bucket "media" si no existe
   const { error } = await supabase.storage.createBucket('media', { public: true })

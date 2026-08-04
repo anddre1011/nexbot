@@ -10,6 +10,7 @@ import {
 } from './whatsapp'
 import { propagateCampaignToSale } from './campaigns'
 import { createNotification } from './notifications'
+import { queueConversion } from './capi.service'
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 interface FlowStep {
@@ -214,6 +215,19 @@ export async function executeConversionFlow(
           title: '💰 Nueva venta',
           body: `${conv.products.name} — Bs ${conv.products.price}`,
           data: { saleId: saleResult.data.id, amount: conv.products.price, product: conv.products.name },
+        }).catch(() => {})
+        queueConversion({
+          tenantId,
+          contactId,
+          conversationId,
+          eventName: 'Purchase',
+          value: Number(conv.products.price),
+          currency: conv.products.currency ?? 'BOB',
+          productIds: conv.product_id ? [conv.product_id] : undefined,
+          productNames: [conv.products.name],
+          numItems: 1,
+          orderId: saleResult.data.id,
+          markedVia: 'flow',
         }).catch(() => {})
       }
 

@@ -10,6 +10,14 @@ interface ConnectResult {
   detail?: string
 }
 
+interface CapiSettings {
+  dataset_id: string
+  test_event_code: string
+  capi_status: string
+  capi_last_event_sent_at: string | null
+  has_token: boolean
+}
+
 const STEP_LABELS: Record<string, string> = {
   validate_token:      '🔑 Validar Token',
   get_waba_id:         '🏢 Obtener WABA ID',
@@ -35,13 +43,24 @@ export default function ConexionPage() {
   const [connecting, setConnecting] = useState(false)
   const [connectResults, setConnectResults] = useState<ConnectResult[]>([])
   const [connected, setConnected] = useState(false)
+  const [capiLoading, setCapiLoading] = useState(true)
+  const [capiSaving, setCapiSaving] = useState(false)
+  const [capiError, setCapiError] = useState('')
+  const [capiSaved, setCapiSaved] = useState(false)
+  const [replaceCapiToken, setReplaceCapiToken] = useState(false)
+  const [capiStatus, setCapiStatus] = useState<CapiSettings | null>(null)
+  const [capiForm, setCapiForm] = useState({
+    dataset_id: '',
+    token: '',
+    test_event_code: '',
+  })
 
   // ─── cargar tenant actual ──────────────────────────────────────────────────
   useEffect(() => {
     async function load() {
       const supabase = createClient()
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) { setLoading(false); return }
+      if (!user) { setLoading(false); setCapiLoading(false); return }
 
       const { data } = await supabase
         .from('tenants')
@@ -66,6 +85,19 @@ export default function ConexionPage() {
         if (data.meta_token && data.phone_number_id && !data.meta_token.startsWith('••')) {
           setConnected(true)
         }
+      }
+      try {
+        const capi = await apiFetch<CapiSettings>('/api/tenants/capi')
+        setCapiStatus(capi)
+        setCapiForm({
+          dataset_id: capi.dataset_id ?? '',
+          token: '',
+          test_event_code: capi.test_event_code ?? '',
+        })
+      } catch {
+        // La configuracion CAPI es opcional; si aun no existe, se muestra vacia.
+      } finally {
+        setCapiLoading(false)
       }
       setLoading(false)
     }
@@ -154,10 +186,58 @@ export default function ConexionPage() {
     }
   }
 
+  async function handleSaveCapi() {
+    setCapiError('')
+    setCapiSaved(false)
+
+    if (!/^\d+$/.test(capiForm.dataset_id.trim())) {
+      setCapiError('El Dataset ID debe ser numérico.')
+      return
+    }
+    if (!capiStatus?.has_token && !capiForm.token.trim()) {
+      setCapiError('El token CAPI es obligatorio la primera vez.')
+      return
+    }
+
+    setCapiSaving(true)
+    try {
+      const payload: {
+        dataset_id: string
+        token?: string
+        test_event_code?: string | null
+      } = {
+        dataset_id: capiForm.dataset_id.trim(),
+        test_event_code: capiForm.test_event_code.trim() || null,
+      }
+      if (replaceCapiToken || !capiStatus?.has_token) {
+        payload.token = capiForm.token.trim()
+      }
+
+      const saved = await apiFetch<CapiSettings>('/api/tenants/capi', {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      })
+
+      setCapiStatus(saved)
+      setCapiForm({
+        dataset_id: saved.dataset_id ?? '',
+        token: '',
+        test_event_code: saved.test_event_code ?? '',
+      })
+      setReplaceCapiToken(false)
+      setCapiSaved(true)
+      setTimeout(() => setCapiSaved(false), 3500)
+    } catch (err) {
+      setCapiError(err instanceof Error ? err.message : 'Error guardando CAPI')
+    } finally {
+      setCapiSaving(false)
+    }
+  }
+
   if (loading) return <PageLoading />
 
   return (
-    <div className="max-w-2xl">
+    <div className="max-w-3xl">
       <div className="mb-6">
         <h2 className="text-xl font-bold text-white">Conexión WhatsApp</h2>
         <p className="mt-1 text-sm text-gray-500">Conecta tu número de WhatsApp Business — NexBot configura todo automáticamente</p>
@@ -295,6 +375,80 @@ export default function ConexionPage() {
                 Conectando...
               </span>
             ) : connected ? 'Reconectar' : '🚀 Conectar WhatsApp'}
+          </button>
+        </div>
+      </div>
+
+      <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(16,185,129,0.14)' }}
+        className="mt-6 rounded-2xl p-6 flex flex-col gap-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-widest text-emerald-400">Meta Conversions API</p>
+            <h3 className="mt-1 text-lg font-bold text-white">Reportar compras a Meta</h3>
+            <p className="mt-1 max-w-xl text-xs text-gray-500">
+              NexBot enviará las ventas reales a Meta cuando se ejecute una conversión. Esto ayuda a optimizar tus campañas hacia compradores.
+            </p>
+          </div>
+          <div className={`rounded-full px-3 py-1 text-xs font-bold ${
+            capiStatus?.capi_status === 'active'
+              ? 'bg-emerald-500/15 text-emerald-300'
+              : 'bg-white/5 text-gray-400'
+          }`}>
+            {capiLoading ? 'Cargando...' : capiStatus?.capi_status === 'active' ? 'Activo' : 'Sin configurar'}
+          </div>
+        </div>
+
+        <DField label="Dataset ID *" value={capiForm.dataset_id}
+          onChange={(v) => setCapiForm((p) => ({ ...p, dataset_id: v }))}
+          placeholder="ID numérico del dataset / pixel" hint="Meta Events Manager → Dataset → Configuración → Dataset ID" />
+
+        <div>
+          <DField label="CAPI Access Token" value={capiForm.token}
+            onChange={(v) => setCapiForm((p) => ({ ...p, token: v }))}
+            placeholder={capiStatus?.has_token && !replaceCapiToken ? 'Token guardado — activa reemplazar si quieres cambiarlo' : 'EAAG...'}
+            type="password"
+            hint={capiStatus?.has_token ? 'Ya hay un token cifrado guardado para este tenant.' : 'Token de Conversions API generado en Meta.'} />
+          {capiStatus?.has_token && (
+            <button
+              type="button"
+              onClick={() => setReplaceCapiToken((v) => !v)}
+              className="mt-2 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold text-gray-300 hover:text-white"
+            >
+              {replaceCapiToken ? 'Mantener token actual' : 'Reemplazar token'}
+            </button>
+          )}
+        </div>
+
+        <DField label="Test Event Code" value={capiForm.test_event_code}
+          onChange={(v) => setCapiForm((p) => ({ ...p, test_event_code: v }))}
+          placeholder="TEST12345"
+          hint="Opcional. Úsalo solo cuando estés probando en Events Manager." />
+
+        {capiStatus?.capi_last_event_sent_at && (
+          <div className="rounded-xl border border-emerald-400/10 bg-emerald-400/5 px-4 py-3 text-xs text-emerald-200">
+            Último evento enviado: {new Date(capiStatus.capi_last_event_sent_at).toLocaleString('es-BO')}
+          </div>
+        )}
+
+        {capiError && (
+          <div className="rounded-xl border border-red-400/25 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+            {capiError}
+          </div>
+        )}
+        {capiSaved && (
+          <div className="rounded-xl border border-emerald-400/25 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
+            Configuración CAPI guardada.
+          </div>
+        )}
+
+        <div className="flex justify-end">
+          <button
+            onClick={handleSaveCapi}
+            disabled={capiSaving || capiLoading}
+            style={{ background: capiSaving ? 'rgba(16,185,129,0.45)' : 'linear-gradient(135deg, #10b981, #2563eb)' }}
+            className="rounded-xl px-5 py-2.5 text-sm font-bold text-white transition-all hover:opacity-90 disabled:opacity-50"
+          >
+            {capiSaving ? 'Guardando...' : 'Guardar CAPI'}
           </button>
         </div>
       </div>

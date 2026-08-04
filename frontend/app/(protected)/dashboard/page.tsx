@@ -25,6 +25,16 @@ interface TopProduct { name: string; count: number; revenue: number }
 interface ContactEvolution { date: string; count: number }
 interface Toast { id: string; message: string }
 interface SaleFilterOption { id: string; product: string; campaign_id: string | null; campaigns?: { name: string } | null }
+interface ConversionStats {
+  total: number
+  by_status: Record<string, number>
+  sent_value: number
+  attribution_rate: number
+  sent: number
+  pending: number
+  failed: number
+  no_attribution: number
+}
 type DateFilter = 'today' | 'week' | 'month' | 'all'
 
 const KANBAN_COLORS: Record<string, string> = {
@@ -64,6 +74,7 @@ export default function DashboardPage() {
   const [topProducts, setTopProducts] = useState<TopProduct[]>([])
   const [contactsEvo, setContactsEvo] = useState<ContactEvolution[]>([])
   const [kanbanDist, setKanbanDist] = useState<Record<string, number>>({})
+  const [conversionStats, setConversionStats] = useState<ConversionStats | null>(null)
   const [loading, setLoading] = useState(true)
   const [toasts, setToasts] = useState<Toast[]>([])
   const [dateFilter, setDateFilter] = useState<DateFilter>('today')
@@ -87,16 +98,18 @@ export default function DashboardPage() {
       const evoQs = params.toString()
         ? `?${params.toString()}`
         : `?days=${dateFilter === 'week' ? 7 : dateFilter === 'month' ? 30 : dateFilter === 'all' ? 90 : 1}`
-      const [ov, camp, leads, prods, evo, kanban] = await Promise.all([
+      const [ov, camp, leads, prods, evo, kanban, capi] = await Promise.all([
         apiFetch<Overview>(`/api/analytics/overview${qs}`),
         apiFetch<Campaign[]>(`/api/analytics/campaigns${qs}`),
         apiFetch<LeadByCampaign[]>(`/api/analytics/leads-by-campaign${qs}`).catch(() => []),
         apiFetch<TopProduct[]>(`/api/analytics/top-products${qs}`).catch(() => []),
         apiFetch<ContactEvolution[]>(`/api/analytics/contacts-evolution${evoQs}`).catch(() => []),
         apiFetch<Record<string, number>>(`/api/analytics/kanban-distribution${qs}`).catch(() => ({})),
+        apiFetch<ConversionStats>(`/api/conversions/stats${qs}`).catch(() => null),
       ])
       setOverview(ov); setCampaigns(camp); setLeadsByCampaign(leads)
       setTopProducts(prods); setContactsEvo(evo); setKanbanDist(kanban)
+      setConversionStats(capi)
     } catch (err) { console.error('[dashboard]', err) }
     finally { setLoading(false) }
   }, [campaignFilters, confirmedOnly, dateFilter, fromDate, productFilters, toDate])
@@ -290,6 +303,30 @@ export default function DashboardPage() {
               <p className={`text-2xl font-extrabold text-white ${L ? 'animate-pulse' : ''}`}>{card.value}</p>
               <p className="text-[10px] text-gray-600 mt-1">{card.sub}</p>
             </div>
+          ))}
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+          {[
+            { label: 'Meta CAPI enviados', value: L ? '–' : String(conversionStats?.sent ?? 0), sub: `${conversionStats?.total ?? 0} eventos totales`, tone: 'emerald' },
+            { label: 'Valor atribuido', value: L ? '–' : `BOB ${(conversionStats?.sent_value ?? 0).toFixed(2)}`, sub: 'Compras enviadas a Meta', tone: 'amber' },
+            { label: 'Con CTWA', value: L ? '–' : `${conversionStats?.attribution_rate ?? 0}%`, sub: 'Eventos con click de anuncio', tone: 'violet' },
+            { label: 'Pendientes/Fallidas', value: L ? '–' : `${conversionStats?.pending ?? 0}/${conversionStats?.failed ?? 0}`, sub: 'Cola de reintentos CAPI', tone: 'red' },
+          ].map((card) => (
+            <Link
+              key={card.label}
+              href="/conversiones"
+              className={`rounded-2xl border bg-white/[0.03] p-4 transition hover:bg-white/[0.05] ${
+                card.tone === 'emerald' ? 'border-emerald-400/15 shadow-[0_0_24px_rgba(16,185,129,0.08)]' :
+                card.tone === 'amber' ? 'border-amber-400/15 shadow-[0_0_24px_rgba(245,158,11,0.08)]' :
+                card.tone === 'violet' ? 'border-violet-400/15 shadow-[0_0_24px_rgba(124,58,237,0.10)]' :
+                'border-red-400/15 shadow-[0_0_24px_rgba(239,68,68,0.08)]'
+              }`}
+            >
+              <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">{card.label}</p>
+              <p className="mt-2 text-2xl font-extrabold text-white">{card.value}</p>
+              <p className="mt-1 text-[10px] text-gray-600">{card.sub}</p>
+            </Link>
           ))}
         </div>
 

@@ -20,6 +20,16 @@ function maskSensitive(tenant: Record<string, unknown>) {
   return out
 }
 
+async function getTenantForUser(userId: string): Promise<{ id: string } | null> {
+  const { data } = await supabase
+    .from('tenants')
+    .select('id')
+    .eq('user_id', userId)
+    .eq('active', true)
+    .single()
+  return data ?? null
+}
+
 // ─── GET /api/tenants/settings ────────────────────────────────────────────────
 router.get('/settings', async (_req, res) => {
   const { data, error } = await supabase
@@ -89,6 +99,85 @@ router.put('/settings', async (req, res) => {
   if (error) { res.status(500).json({ error: error.message }); return }
 
   res.json({ ok: true, tenant: data })
+})
+
+router.get('/capi', async (_req, res) => {
+  const tenant = await getTenantForUser(res.locals.user.id)
+  if (!tenant) { res.status(404).json({ error: 'Tenant not found' }); return }
+
+  const { data, error } = await supabase
+    .from('tenant_meta_settings')
+    .select('capi_dataset_id, capi_token_encrypted, capi_test_event_code, capi_status, capi_last_event_sent_at')
+    .eq('tenant_id', tenant.id)
+    .maybeSingle()
+
+  if (error && error.code !== 'PGRST116') { res.status(500).json({ error: error.message }); return }
+
+  res.json({
+    dataset_id: data?.capi_dataset_id ?? '',
+    test_event_code: data?.capi_test_event_code ?? '',
+    capi_status: data?.capi_status ?? 'inactive',
+    capi_last_event_sent_at: data?.capi_last_event_sent_at ?? null,
+    has_token: Boolean(data?.capi_token_encrypted),
+  })
+})
+
+router.put('/capi', async (req, res) => {
+  const tenant = await getTenantForUser(res.locals.user.id)
+  if (!tenant) { res.status(404).json({ error: 'Tenant not found' }); return }
+
+  const datasetId = String(req.body?.dataset_id ?? '').trim()
+  const token = typeof req.body?.token === 'string' ? req.body.token.trim() : ''
+  const testEventCode = typeof req.body?.test_event_code === 'string'
+    ? req.body.test_event_code.trim()
+    : null
+
+  if (!/^\d+$/.test(datasetId)) {
+    res.status(400).json({ error: 'Dataset ID debe ser numerico' })
+    return
+  }
+
+  const { data: existing, error: existingError } = await supabase
+    .from('tenant_meta_settings')
+    .select('capi_token_encrypted, capi_last_event_sent_at')
+    .eq('tenant_id', tenant.id)
+    .maybeSingle()
+
+  if (existingError && existingError.code !== 'PGRST116') {
+    res.status(500).json({ error: existingError.message })
+    return
+  }
+
+  if (!token && !existing?.capi_token_encrypted) {
+    res.status(400).json({ error: 'CAPI token is required' })
+    return
+  }
+
+  const payload: Record<string, unknown> = {
+    tenant_id: tenant.id,
+    capi_dataset_id: datasetId,
+    capi_test_event_code: testEventCode || null,
+    capi_status: 'active',
+    is_active: true,
+  }
+
+  if (token) {
+    payload.capi_token_encrypted = encryptSecret(token)
+  }
+
+  const { error } = await supabase
+    .from('tenant_meta_settings')
+    .upsert(payload, { onConflict: 'tenant_id' })
+
+  if (error) { res.status(500).json({ error: error.message }); return }
+
+  res.json({
+    dataset_id: datasetId,
+    test_event_code: testEventCode || '',
+    capi_status: 'active',
+    capi_last_event_sent_at: existing?.capi_last_event_sent_at ?? null,
+    has_token: Boolean(token || existing?.capi_token_encrypted),
+  })
 })
 
 // ─── POST /api/tenants/connect-whatsapp ──────────────────────────────────────
