@@ -25,8 +25,34 @@ import { startCapiRetryWorker } from './services/capi.service'
 
 const app = express()
 const PORT = process.env.PORT ?? 3001
+const fallbackAllowedOrigins = [
+  'https://app.nexbot.pro',
+  'https://nexbot.pro',
+  'https://www.nexbot.pro',
+  'http://localhost:3000',
+  'http://127.0.0.1:3000',
+]
+const allowedOrigins = (process.env.ALLOWED_ORIGINS ?? fallbackAllowedOrigins.join(','))
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean)
 
-app.use(cors())
+const corsMiddleware = cors({
+  origin(origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true)
+      return
+    }
+    callback(new Error(`Origin not allowed by CORS: ${origin}`))
+  },
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true,
+  optionsSuccessStatus: 204,
+})
+
+app.use(corsMiddleware)
+app.options('*', corsMiddleware)
 app.use(express.json())
 
 app.get('/health', (_req, res) => {
