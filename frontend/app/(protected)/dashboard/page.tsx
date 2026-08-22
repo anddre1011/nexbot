@@ -581,7 +581,7 @@ function SalesWidget() {
 
   useEffect(() => {
     import('@/lib/api').then(({ apiFetch }) => {
-      apiFetch<typeof sales>('/api/sales')
+      apiFetch<typeof sales>('/api/sales?status=confirmed')
         .then(d => setSales((d ?? []).slice(0, 8)))
         .catch(() => {})
         .finally(() => setLoading(false))

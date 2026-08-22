@@ -5,6 +5,7 @@ import { sendTextMessage, sendAudioMessage, sendMediaByType } from '../services/
 import { executeWelcomeFlow } from '../services/flow-engine'
 import { propagateCampaignToSale } from '../services/campaigns'
 import { createNotification } from '../services/notifications'
+import { queueConversion } from '../services/capi.service'
 
 const AGENT_DISABLED_TAG = 'agent_disabled'
 const CHAT_COLOR_TAG_PREFIX = 'chat_color:'
@@ -57,6 +58,67 @@ async function fetchLatestSaleByContact(tenantId: string, contactIds: string[]) 
     if (!latestSaleByContact.has(sale.contact_id)) latestSaleByContact.set(sale.contact_id, Number(sale.amount))
   }
   return latestSaleByContact
+}
+
+async function backfillMissingSaleConversations(tenantId: string, existingContactIds: Set<string>) {
+  const { data: sales, error: salesError } = await supabase
+    .from('sales')
+    .select('contact_id, campaign_id, created_at')
+    .eq('tenant_id', tenantId)
+    .eq('status', 'confirmed')
+    .not('contact_id', 'is', null)
+    .order('created_at', { ascending: false })
+    .limit(500)
+
+  if (salesError) {
+    console.warn('[conversations] sale backfill lookup failed:', salesError.message)
+    return false
+  }
+
+  const latestSaleByMissingContact = new Map<string, any>()
+  for (const sale of sales ?? []) {
+    const contactId = sale.contact_id
+    if (!contactId || existingContactIds.has(contactId) || latestSaleByMissingContact.has(contactId)) continue
+    latestSaleByMissingContact.set(contactId, sale)
+  }
+
+  const missingContactIds = [...latestSaleByMissingContact.keys()]
+  if (!missingContactIds.length) return false
+
+  const { data: contacts, error: contactsError } = await supabase
+    .from('contacts')
+    .select('id')
+    .eq('tenant_id', tenantId)
+    .in('id', missingContactIds)
+
+  if (contactsError) {
+    console.warn('[conversations] sale backfill contacts failed:', contactsError.message)
+    return false
+  }
+
+  const now = new Date().toISOString()
+  const rows = (contacts ?? []).map((contact: any) => {
+    const sale = latestSaleByMissingContact.get(contact.id)
+    return {
+      tenant_id: tenantId,
+      contact_id: contact.id,
+      campaign_id: sale?.campaign_id ?? null,
+      status: 'converted',
+      ai_enabled: false,
+      created_at: sale?.created_at ?? now,
+      last_read_at: now,
+    }
+  })
+
+  if (!rows.length) return false
+
+  const { error } = await supabase.from('conversations').insert(rows)
+  if (error) {
+    console.warn('[conversations] sale backfill insert failed:', error.message)
+    return false
+  }
+
+  return true
 }
 
 async function hasConfirmedSale(tenantId: string, contactId?: string | null) {
@@ -229,13 +291,29 @@ router.get('/', async (req, res) => {
     return res.json(rows)
   }
 
-  const { data: conversations, error } = await supabase
+  let { data: conversations, error } = await supabase
     .from('conversations')
     .select('id, status, campaign_id, flow_id, created_at, last_read_at, contact_id, contacts!inner(id, phone, name), campaigns(name)')
     .eq('tenant_id', tenantId)
     .order('created_at', { ascending: false })
 
   if (error) { res.status(500).json({ error: error.message }); return }
+
+  const existingContactIds = new Set((conversations ?? []).map((row: any) => row.contact_id).filter(Boolean))
+  const addedMissingSaleConversations = await backfillMissingSaleConversations(tenantId, existingContactIds)
+  if (addedMissingSaleConversations) {
+    const refreshed = await supabase
+      .from('conversations')
+      .select('id, status, campaign_id, flow_id, created_at, last_read_at, contact_id, contacts!inner(id, phone, name), campaigns(name)')
+      .eq('tenant_id', tenantId)
+      .order('created_at', { ascending: false })
+
+    if (refreshed.error) {
+      res.status(500).json({ error: refreshed.error.message })
+      return
+    }
+    conversations = refreshed.data
+  }
 
   const conversationIds = (conversations ?? []).map((row: any) => row.id)
   const contactIds = [...new Set((conversations ?? []).map((row: any) => row.contact_id).filter(Boolean))]
@@ -603,6 +681,7 @@ router.post('/:id/mark-paid', async (req, res) => {
     .single()
 
   if (!conv) { res.status(404).json({ error: 'Conversation not found' }); return }
+  if (!(conv as any).contact_id) { res.status(400).json({ error: 'Conversation has no contact' }); return }
 
   const { data: product, error: productErr } = await supabase
     .from('products')
@@ -665,6 +744,41 @@ router.post('/:id/mark-paid', async (req, res) => {
 
   await propagateCampaignToSale(saleId, req.params.id)
 
+  const { data: existingConversion, error: conversionLookupErr } = await supabase
+    .from('conversions')
+    .select('id')
+    .eq('tenant_id', tenantId)
+    .eq('order_id', saleId)
+    .eq('event_name', 'Purchase')
+    .limit(1)
+    .maybeSingle()
+
+  if (conversionLookupErr) {
+    console.warn('[conversations/mark-paid] CAPI lookup skipped:', conversionLookupErr.message)
+  }
+
+  let capiConversionId = existingConversion?.id ?? null
+  if (!capiConversionId) {
+    capiConversionId = await queueConversion({
+      tenantId,
+      contactId: (conv as any).contact_id,
+      conversationId: req.params.id,
+      eventName: 'Purchase',
+      value: amount,
+      currency: (product as any).currency ?? 'BOB',
+      productIds: [(product as any).id],
+      productNames: [(product as any).name],
+      numItems: 1,
+      orderId: saleId,
+      markedVia: 'manual',
+      markedByUserId: res.locals.user.id,
+      notes: 'manual_mark_paid',
+    }).catch((err) => {
+      console.warn('[conversations/mark-paid] CAPI queue failed:', err?.message ?? err)
+      return null
+    })
+  }
+
   await Promise.all([
     supabase
       .from('conversations')
@@ -686,6 +800,7 @@ router.post('/:id/mark-paid', async (req, res) => {
     amount,
     currency: (product as any).currency ?? 'BOB',
     existing: !!existingSale?.id,
+    capi_conversion_id: capiConversionId,
   })
 })
 
