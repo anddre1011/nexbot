@@ -245,9 +245,9 @@ async function processMessage(params: {
   const { campaignId, metaAdId } = await resolveCampaign(raw, tenantId)
 
   // 3. Obtener o crear conversación abierta
-  const conversation = await getOrCreateConversation(contact.id, tenantId)
+  let conversation = await getOrCreateConversation(contact.id, tenantId)
   const isNewConversation = conversation._new === true
-  const blockedStages = ['converted', 'closed', 'disqualified', 'abandoned']
+  const blockedStages = ['converted', 'disqualified', 'abandoned']
   const alreadyConverted = blockedStages.includes((contact as { kanban_stage?: string | null }).kanban_stage ?? '')
 
   // 4. Vincular campaña si la conversación aún no tiene una asignada
@@ -273,6 +273,7 @@ async function processMessage(params: {
 
       console.log(`[webhook] Meta ad ${metaAdId} -> executing flow "${adFlow.name}"`)
       await executeWelcomeFlow(adFlow.id, from, conversation.id, tenantId, creds, inboundMessageId)
+      await resetInactivityTimers(conversation.id, from, adFlow.id, tenantId, creds)
       return
     }
   }
@@ -369,18 +370,21 @@ async function processMessage(params: {
         // Ejecutar flujo inicial SOLO si es una sesión inactiva/nueva
         // Si el estatus es 'human', NUNCA intervenimos.
         // Si la IA está apagada, la sesión NO está activa para el bot (dejamos que las keywords la revivan).
-        const isExistingConversation = !isNewConversation
+        const canStartKeywordFlow = isNewConversation || conversation.status === 'closed' || !conversation.flow_id
 
-        if (isExistingConversation) {
+        if (!canStartKeywordFlow) {
           console.log(`[webhook] Keyword "${matched.keyword}" ignored because conversation already exists. AI will handle it if enabled.`)
         } else {
           // Vincular flujo nuevo a la conversación y reactivar la IA
+          const agentEnabled = isFlowAgentEnabled(keywordFlow)
           await supabase.from('conversations')
-            .update({ flow_id: matched.flow_id, status: isFlowAgentEnabled(keywordFlow) ? 'bot' : 'open', ai_enabled: isFlowAgentEnabled(keywordFlow) })
+            .update({ flow_id: matched.flow_id, status: agentEnabled ? 'bot' : 'open', ai_enabled: agentEnabled, flow_step: 0 })
             .eq('id', conversation.id)
+          conversation = { ...conversation, flow_id: matched.flow_id, status: agentEnabled ? 'bot' : 'open', ai_enabled: agentEnabled, flow_step: 0 }
           
           console.log(`[webhook] Keyword "${matched.keyword}" → executing flow "${(matched.flows as any)?.name}"`)
           await executeWelcomeFlow(matched.flow_id, from, conversation.id, tenantId, creds, inboundMessageId)
+          await resetInactivityTimers(conversation.id, from, matched.flow_id, tenantId, creds)
           return  // El flujo inicial ya respondió
         }
       }
@@ -403,8 +407,24 @@ async function processMessage(params: {
     return
   }
 
+  if (
+    activeFlow &&
+    isFlowAgentEnabled(activeFlow) &&
+    !alreadyConverted &&
+    conversation.ai_enabled === false &&
+    ['closed', 'open', 'bot'].includes(conversation.status ?? '')
+  ) {
+    await supabase.from('conversations')
+      .update({ status: 'bot', ai_enabled: true })
+      .eq('id', conversation.id)
+    conversation = { ...conversation, status: 'bot', ai_enabled: true }
+    console.log(`[webhook] Reactivated AI for conversation ${conversation.id} after inbound message`)
+  }
+
   // 6c. Reiniciar temporizadores de inactividad (con reglas del flujo)
-  await resetInactivityTimers(conversation.id, from, activeFlow?.id, tenantId, creds)
+  if (activeFlow) {
+    await resetInactivityTimers(conversation.id, from, activeFlow.id, tenantId, creds)
+  }
 
   // ═══ 7. LÓGICA DE FLUJO ═══════════════════════════════════════════════════
 

@@ -5,6 +5,7 @@ import { getInactivityRules, resolveMediaVars } from './flow-engine'
 type ConversationState = {
   status: string | null
   ai_enabled: boolean | null
+  flow_id?: string | null
 }
 
 type ScheduledInactivityJob = {
@@ -114,7 +115,9 @@ async function scheduleInactivityJobs(
   const businessHours = await getTenantBusinessHours(tenantId)
 
   if (flowId) {
-    const rules = await getInactivityRules(flowId)
+    const rules = (await getInactivityRules(flowId))
+      .slice()
+      .sort((a, b) => (a.delay_ms ?? 0) - (b.delay_ms ?? 0))
     const { data: sentJobs } = await supabase
       .from('scheduled_inactivity_jobs')
       .select('rule_id')
@@ -225,7 +228,6 @@ async function bootstrapOpenConversations() {
     .from('conversations')
     .select('id, tenant_id, flow_id, contacts(phone)')
     .in('status', ['bot', 'open'])
-    .eq('ai_enabled', true)
     .not('flow_id', 'is', null)
     .limit(200)
 
@@ -486,7 +488,7 @@ async function saveOutbound(conversationId: string, type: string, content: strin
 async function getConversationState(conversationId: string): Promise<ConversationState | null> {
   const { data } = await supabase
     .from('conversations')
-    .select('status, ai_enabled')
+    .select('status, ai_enabled, flow_id')
     .eq('id', conversationId)
     .maybeSingle()
 
@@ -567,7 +569,8 @@ function nextBusinessTimeMs(targetMs: number, hours: BusinessHours | null) {
     }
 
     const start = parseHour(config.start ?? '00:00')
-    const end = parseHour(config.end ?? '23:59')
+    let end = parseHour(config.end ?? '23:59')
+    if (end === 0 && start > 0) end = 24 * 60
     if (end <= start) {
       cursorMs = boliviaLocalToUtcMs(local.year, local.month, local.date + 1, 0, 0)
       continue
@@ -610,5 +613,5 @@ function parseHour(value: string) {
 function canSendInactivity(conv: ConversationState | null) {
   if (!conv?.status) return false
   if (!INACTIVITY_SEND_STATUSES.has(conv.status)) return false
-  return conv.ai_enabled !== false
+  return conv.ai_enabled !== false || Boolean(conv.flow_id)
 }
