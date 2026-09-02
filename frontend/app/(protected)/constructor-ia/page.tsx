@@ -119,6 +119,38 @@ const EMPTY: FormState = {
   agent_enabled: true, chat_color: 'violet', tags: [],
 }
 
+function buildFormState(flow: Flow | null): FormState {
+  if (!flow) {
+    return {
+      ...EMPTY,
+      welcome_items: [],
+      inactivity_messages: [],
+      tags: [],
+    }
+  }
+
+  return {
+    name:                flow.name,
+    type:                flow.type,
+    model:               flow.model,
+    system_prompt:       flow.system_prompt ?? DEFAULT_PROMPT,
+    handoff_agent_name:  flow.handoff_agent_name ?? '',
+    welcome_items:       flow.welcome_items ?? [],
+    inactivity_messages: flow.inactivity_messages ?? [],
+    conversion_enabled:  flow.conversion_enabled,
+    conversion_message:  flow.conversion_message ?? '',
+    inactivity_delay:    '60',
+    inactivity_unit:     'minutes',
+    agent_enabled:       !(flow.tags ?? []).includes(AGENT_DISABLED_TAG),
+    chat_color:          getFlowChatColor(flow.tags),
+    tags:                flow.tags ?? [],
+  }
+}
+
+function normalizeMediaToken(value: string) {
+  return value.replace(/\s+/g, '')
+}
+
 // ─── página principal ─────────────────────────────────────────────────────────
 export default function ConstructorIAPage() {
   const [flows,   setFlows]   = useState<Flow[]>([])
@@ -349,22 +381,7 @@ function FlowPanel({ flow, medias, onClose, onSaved, onMediaCreated }: {
 }) {
   const isEdit = !!flow
   const promptRef = useRef<HTMLTextAreaElement>(null)
-  const [form, setForm]       = useState<FormState>(() => flow ? {
-    name:                flow.name,
-    type:                flow.type,
-    model:               flow.model,
-    system_prompt:       flow.system_prompt ?? DEFAULT_PROMPT,
-    handoff_agent_name:  flow.handoff_agent_name ?? '',
-    welcome_items:       flow.welcome_items ?? [],
-    inactivity_messages: flow.inactivity_messages ?? [],
-    conversion_enabled:  flow.conversion_enabled,
-    conversion_message:  flow.conversion_message ?? '',
-    inactivity_delay:    '60',
-    inactivity_unit:     'minutes',
-    agent_enabled:       !(flow.tags ?? []).includes(AGENT_DISABLED_TAG),
-    chat_color:          getFlowChatColor(flow.tags),
-    tags:                flow.tags ?? [],
-  } : { ...EMPTY })
+  const [form, setForm]       = useState<FormState>(() => buildFormState(flow))
   const [saving,          setSaving]          = useState(false)
   const [error,           setError]           = useState('')
   const [saveStatus,      setSaveStatus]      = useState('')
@@ -380,6 +397,20 @@ function FlowPanel({ flow, medias, onClose, onSaved, onMediaCreated }: {
   const [flowSteps, setFlowSteps] = useState<any[]>([])
   const [conversions, setConversions] = useState<any[]>([])
   const [inactRules, setInactRules] = useState<any[]>([])
+
+  useEffect(() => {
+    setForm(buildFormState(flow))
+    setSaving(false)
+    setError('')
+    setSaveStatus('')
+    setSaved(false)
+    setGenerating(false)
+    setShowMediaPicker(false)
+    setPromptExpanded(false)
+    setUploadingMedia(false)
+    setPendingMedia(null)
+    setUploadKey((key) => key + 1)
+  }, [flow?.id, isEdit])
 
   useEffect(() => {
     if (!flow?.id) {
@@ -404,6 +435,16 @@ function FlowPanel({ flow, medias, onClose, onSaved, onMediaCreated }: {
   function set<K extends keyof FormState>(k: K, v: FormState[K]) {
     setForm((p) => ({ ...p, [k]: v }))
   }
+
+  const promptMediaTokens = Array.from(new Set(
+    (form.system_prompt.match(/\{\{\s*media:\s*[^}]+\s*\}\}/g) ?? []).map((token) => token.trim())
+  ))
+  const availableMediaTokens = new Set([
+    ...medias.map((media) => media.variable).filter(Boolean).map((token) => normalizeMediaToken(token as string)),
+    ...flowSteps
+      .filter((step: any) => step.variable_name)
+      .map((step: any) => normalizeMediaToken(`{{media:${step.variable_name}}}`)),
+  ])
 
   function insertAtCursor(text: string) {
     const ta = promptRef.current
@@ -749,43 +790,35 @@ function FlowPanel({ flow, medias, onClose, onSaved, onMediaCreated }: {
               </div>
             </div>
 
-            <div className="relative w-full rounded-xl transition-all focus-within:border-violet-500 focus-within:ring-2 focus-within:ring-violet-500/20" style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.10)' }}>
-              {/* Overlay visual para los colores */}
-              <div 
-                className="absolute inset-0 z-0 overflow-auto whitespace-pre-wrap break-words px-4 py-3 font-mono text-xs leading-relaxed pointer-events-none"
-                aria-hidden="true"
-              >
-                {form.system_prompt?.split(/(\{\{\s*media:\s*[^}]+\s*\}\})/g).map((part, i) => {
-                  if (part.match(/\{\{\s*media:\s*([^}]+?)\s*\}\}/)) {
-                    // Validar si existe
-                    const isValid = medias.some(m => {
-                      const normalizedPart = part.replace(/\s+/g, '');
-                      const normalizedM = (m.variable || '').replace(/\s+/g, '');
-                      return normalizedPart === normalizedM;
-                    });
-                    return (
-                      <span key={i} className={`font-bold rounded px-1 ${isValid ? 'text-emerald-400 bg-emerald-400/10' : 'text-red-400 bg-red-400/20'}`}>
-                        {part}
-                      </span>
-                    )
-                  }
-                  return <span key={i} className="text-gray-200">{part}</span>
-                })}
-              </div>
-              
-              {/* Textarea real (transparente) */}
+            <div>
               <textarea ref={promptRef}
-                rows={promptExpanded ? 22 : 8}
+                rows={promptExpanded ? 22 : 10}
                 value={form.system_prompt}
                 onChange={(e) => set('system_prompt', e.target.value)}
-                onScroll={(e) => {
-                  const div = e.currentTarget.previousElementSibling as HTMLDivElement;
-                  if (div) div.scrollTop = e.currentTarget.scrollTop;
-                }}
                 spellCheck={false}
-                style={{ color: 'transparent', caretColor: 'white' }}
-                className="relative z-10 w-full h-full bg-transparent px-4 py-3 font-mono text-xs leading-relaxed outline-none resize-none" 
+                style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.10)' }}
+                className="w-full rounded-xl px-4 py-3 font-mono text-xs leading-relaxed text-gray-100 placeholder-gray-600 outline-none transition-all resize-y selection:bg-violet-500/35 focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20"
               />
+              {promptMediaTokens.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {promptMediaTokens.map((token) => {
+                    const isValid = availableMediaTokens.has(normalizeMediaToken(token))
+                    return (
+                      <span
+                        key={token}
+                        className={`rounded-lg px-2 py-1 font-mono text-[10px] font-bold ${
+                          isValid
+                            ? 'border border-emerald-400/25 bg-emerald-400/10 text-emerald-300'
+                            : 'border border-red-400/30 bg-red-400/15 text-red-300'
+                        }`}
+                        title={isValid ? 'Media encontrada' : 'No encuentro esta media guardada'}
+                      >
+                        {token}
+                      </span>
+                    )
+                  })}
+                </div>
+              )}
             </div>
           </div>
 
